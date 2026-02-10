@@ -1,0 +1,38 @@
+{
+  "name": "capstone-sauce",
+  "version": "1.0.0",
+  "description": "Sports Statistics Tracking Application - MERN Stack with TypeScript",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
+    "server:dev": "npm run dev --prefix server",
+    "client:dev": "npm run dev --prefix client",
+    "server:build": "npm run build --prefix server",
+    "client:build": "npm run build --prefix client",
+    "build": "npm run server:build && npm run client:build",
+    "start": "npm run start --prefix server",
+    "test": "npm run test --prefix server && npm run test --prefix client",
+    "test:server": "npm run test --prefix server",
+    "test:client": "npm run test --prefix client",
+    "install:all": "npm install && npm install --prefix server && npm install --prefix client",
+    "lint": "npm run lint --prefix server && npm run lint --prefix client"
+  },
+  "keywords": [
+    "sports",
+    "statistics",
+    "tracking",
+    "mern",
+    "typescript",
+    "react",
+    "mongodb",
+    "express"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
