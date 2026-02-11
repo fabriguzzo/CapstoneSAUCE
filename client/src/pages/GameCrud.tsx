@@ -234,7 +234,11 @@ export default function GameCrud() {
                 <Typography sx={{ fontWeight: 900, color: GREEN, mb: 1.2 }}>Game Details</Typography>
 
                 <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mb: 2 }}>
-                  <TextField select fullWidth label="Your Team" value={teamId} onChange={(e) => setTeamId(e.target.value)}>
+                  <TextField select fullWidth label="Your Team" value={teamId} onChange={(e) => setTeamId(e.target.value)}sx={{
+                    "& .MuiInputLabel-root": { color: GREEN },
+                    "& .MuiOutlinedInput-root fieldset": { borderColor: GREEN },
+                    "& .MuiSelect-icon": { color: GREEN },
+                    "& input": { color: GREEN }}}>
                     <MenuItem value="">Select…</MenuItem>
                     {teams.map((t) => (
                       <MenuItem key={t.id} value={t.id}>
@@ -243,7 +247,11 @@ export default function GameCrud() {
                     ))}
                   </TextField>
 
-                  <TextField select fullWidth label="Game Type" value={gameType} onChange={(e) => setGameType(e.target.value)}>
+                  <TextField select fullWidth label="Game Type" value={gameType} onChange={(e) => setGameType(e.target.value)}sx={{
+                      "& .MuiInputLabel-root": { color: GREEN },
+                      "& .MuiOutlinedInput-root fieldset": { borderColor: GREEN },
+                      "& .MuiSelect-icon": { color: GREEN },
+                      "& input": { color: GREEN }}}>
                     <MenuItem value="">Select…</MenuItem>
                     {GAME_TYPES.map((t) => (
                       <MenuItem key={t.value} value={t.value}>
@@ -259,6 +267,11 @@ export default function GameCrud() {
                     value={gameDate}
                     onChange={(e) => setGameDate(e.target.value)}
                     InputLabelProps={{ shrink: true }}
+                    sx={{
+                  "& .MuiInputLabel-root": { color: GREEN },
+                  "& .MuiOutlinedInput-root fieldset": { borderColor: GREEN },
+                  "& .MuiSelect-icon": { color: GREEN },
+                  "& input": { color: GREEN }}}
                   />
                 </Stack>
 

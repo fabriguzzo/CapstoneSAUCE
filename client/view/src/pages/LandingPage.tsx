@@ -113,6 +113,10 @@ export default function LandingPage() {
     // Do nothing
   };
 
+  const handleGameCrudClick = () => {
+    navigate('/gamecrud');
+  };
+
   return (
     <Box>
       {/* Navigation Header */}
@@ -136,6 +140,13 @@ export default function LandingPage() {
               SAUCE
             </Typography>
             <Box sx={{ display: 'flex', gap: 2 }}>
+              <Button
+                variant="text"
+                onClick={handleGameCrudClick}
+                sx={{ color: 'text.primary' }}
+              >
+                GameCRUD
+              </Button>
               <Button 
                 variant="text" 
                 onClick={handleAboutClick}
