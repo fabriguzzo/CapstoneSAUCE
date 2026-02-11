@@ -30,6 +30,7 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.18",
     "concurrently": "^8.2.2",
     "mongoose": "^9.2.0"
   },
