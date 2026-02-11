@@ -11,7 +11,8 @@
     "test:watch": "jest --watch",
     "lint": "eslint 'src/**/*.ts' --no-error-on-unmatched-pattern",
     "lint:fix": "eslint 'src/**/*.ts' --fix --no-error-on-unmatched-pattern",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "seed": "ts-node seed.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

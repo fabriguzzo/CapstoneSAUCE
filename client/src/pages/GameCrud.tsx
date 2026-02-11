@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   Box,
   Container,
@@ -9,8 +9,20 @@ import {
   MenuItem,
   Button,
   Divider,
+  CircularProgress,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  IconButton,
+  Chip,
 } from "@mui/material";
+import { Add as AddIcon, Remove as RemoveIcon, Edit as EditIcon, Delete as DeleteIcon } from "@mui/icons-material";
 import { AnimatePresence, motion } from "framer-motion";
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
 type TeamOption = { id: string; name: string };
 type RosterPlayer = { id: string; number: number; name: string };
@@ -40,6 +52,19 @@ export type CreateGamePayload = {
   lineup: { playerId: string; slot: number }[]; // total 15
   opponentTeamName: string;
   opponentRoster: { number: string; name: string }[]; // total 15
+};
+
+type Game = {
+  _id: string;
+  teamId: string;
+  teamName?: string;
+  gameType: string;
+  gameDate: string;
+  lineup: { playerId: string; slot: number; playerName?: string; playerNumber?: number }[];
+  opponentTeamName: string;
+  opponentRoster: { number: string; name: string }[];
+  teamScore?: number;
+  opponentScore?: number;
 };
 
 const CREAM = "#fff2d1";
@@ -78,12 +103,76 @@ function playerLabel(p: RosterPlayer) {
 export default function GameCrud() {
   const [activePanel, setActivePanel] = useState<"home" | "opp">("home");
 
-  const [teams] = useState<TeamOption[]>([]);
-  const [roster] = useState<RosterPlayer[]>([]);
-  const [isSubmitting] = useState(false);
+  const [teams, setTeams] = useState<TeamOption[]>([]);
+  const [roster, setRoster] = useState<RosterPlayer[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [teamId, setTeamId] = useState("");
   const [gameType, setGameType] = useState("");
   const [gameDate, setGameDate] = useState("");
+
+  // Fetch teams and games on mount
+  useEffect(() => {
+    fetchTeams();
+    fetchGames();
+  }, []);
+
+  // Fetch players when team changes
+  useEffect(() => {
+    if (teamId) {
+      fetchPlayers(teamId);
+    } else {
+      setRoster([]);
+    }
+  }, [teamId]);
+
+  async function fetchTeams() {
+    try {
+      setIsLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/teams`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch teams');
+      }
+      const data = await response.json();
+      setTeams(data.map((t: any) => ({ id: t._id, name: t.name })));
+    } catch (err) {
+      console.error('Error fetching teams:', err);
+      setLoadError('Failed to load teams. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function fetchPlayers(teamId: string) {
+    try {
+      setIsLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/players?teamId=${teamId}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch players');
+      }
+      const data = await response.json();
+      setRoster(data.map((p: any) => ({ id: p._id, number: p.number, name: p.name })));
+    } catch (err) {
+      console.error('Error fetching players:', err);
+      setLoadError('Failed to load players. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function fetchGames() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/games`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch games');
+      }
+      const data = await response.json();
+      setGames(data);
+    } catch (err) {
+      console.error('Error fetching games:', err);
+    }
+  }
 
   const [lineup, setLineup] = useState<Record<LineupSlot, string>>({
     G: "",
@@ -107,6 +196,10 @@ export default function GameCrud() {
   const [oppRoster, setOppRoster] = useState<OppPlayer[]>(
     Array.from({ length: 15 }, () => ({ number: "", name: "" }))
   );
+
+  const [games, setGames] = useState<Game[]>([]);
+  const [editingGame, setEditingGame] = useState<string | null>(null);
+  const [hasChanges, setHasChanges] = useState(false);
 
   // Prevent duplicate selections in lineup (still allows clearing)
   const selectedIds = useMemo(() => new Set(Object.values(lineup).filter(Boolean)), [lineup]);
@@ -183,7 +276,146 @@ export default function GameCrud() {
       return;
     }
     const payload = buildPayload();
-    console.log("Create payload:", payload);
+    
+    try {
+      setIsSubmitting(true);
+      const response = await fetch(`${API_BASE_URL}/api/games`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create game');
+      }
+
+      const createdGame = await response.json();
+      alert('Game created successfully!');
+      console.log('Created game:', createdGame);
+      
+      // Refresh games list
+      fetchGames();
+      
+      // Reset form after successful creation
+      setGameType('');
+      setGameDate('');
+      setOppTeamName('');
+      setOppRoster(Array.from({ length: 15 }, () => ({ number: '', name: '' })));
+      setLineup({
+        G: '',
+        LD: '',
+        RD: '',
+        LW: '',
+        C: '',
+        RW: '',
+        B1: '',
+        B2: '',
+        B3: '',
+        B4: '',
+        B5: '',
+        B6: '',
+        B7: '',
+        B8: '',
+        B9: '',
+      });
+    } catch (err: any) {
+      console.error('Error creating game:', err);
+      alert(`Failed to create game: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function loadGameForEdit(game: Game) {
+    setEditingGame(game._id);
+    setTeamId(game.teamId);
+    setGameType(game.gameType);
+    setGameDate(game.gameDate);
+    setOppTeamName(game.opponentTeamName);
+    
+    // Load lineup
+    const newLineup = { ...lineup };
+    game.lineup.forEach((player) => {
+      const slotMap: Record<number, LineupSlot> = {
+        1: "G", 2: "LD", 3: "RD", 4: "LW", 5: "C", 6: "RW",
+        7: "B1", 8: "B2", 9: "B3", 10: "B4", 11: "B5", 
+        12: "B6", 13: "B7", 14: "B8", 15: "B9"
+      };
+      if (slotMap[player.slot]) {
+        newLineup[slotMap[player.slot]] = player.playerId;
+      }
+    });
+    setLineup(newLineup);
+    
+    // Load opponent roster
+    setOppRoster(game.opponentRoster.map(p => ({ number: p.number, name: p.name })));
+    
+    // Load scores
+    setGames(prev => prev.map(g => 
+      g._id === game._id ? { ...g, editing: true } : g
+    ));
+  }
+
+  function updateGameScore(gameId: string, team: 'team' | 'opponent', delta: number) {
+    setGames(prev => prev.map(game => {
+      if (game._id === gameId) {
+        const updatedGame = { ...game };
+        if (team === 'team') {
+          updatedGame.teamScore = Math.max(0, (updatedGame.teamScore || 0) + delta);
+        } else {
+          updatedGame.opponentScore = Math.max(0, (updatedGame.opponentScore || 0) + delta);
+        }
+        setHasChanges(true);
+        return updatedGame;
+      }
+      return game;
+    }));
+  }
+
+  function deleteGame(gameId: string) {
+    if (confirm('Are you sure you want to delete this game?')) {
+      setGames(prev => prev.filter(g => g._id !== gameId));
+      setHasChanges(true);
+    }
+  }
+
+  async function syncChanges() {
+    try {
+      setIsSubmitting(true);
+      
+      // Update games with score changes
+      const gamesWithScores = games.filter(g => g.teamScore !== undefined || g.opponentScore !== undefined);
+      
+      for (const game of gamesWithScores) {
+        await fetch(`${API_BASE_URL}/api/games/${game._id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            teamScore: game.teamScore,
+            opponentScore: game.opponentScore,
+          }),
+        });
+      }
+      
+      setHasChanges(false);
+      alert('Changes synced successfully!');
+    } catch (err: any) {
+      console.error('Error syncing changes:', err);
+      alert(`Failed to sync changes: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  if (isLoading && teams.length === 0) {
+    return (
+      <Box sx={{ minHeight: "100vh", bgcolor: CREAM, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <CircularProgress sx={{ color: GREEN }} />
+      </Box>
+    );
   }
 
   return (
@@ -203,6 +435,12 @@ export default function GameCrud() {
           Create Game
         </Typography>
 
+        {loadError && (
+          <Paper sx={{ p: 2, mb: 3, bgcolor: '#ffebee', color: '#c62828' }}>
+            <Typography>{loadError}</Typography>
+          </Paper>
+        )}
+
         <Stack direction="row" justifyContent="center" spacing={1.5} sx={{ mb: 3, flexWrap: "wrap" }}>
           <Button
             variant={activePanel === "home" ? "contained" : "outlined"}
@@ -210,8 +448,13 @@ export default function GameCrud() {
             sx={{
               bgcolor: activePanel === "home" ? GREEN : "transparent",
               borderColor: GREEN,
-              color: activePanel === "home" ? "#fff !important" : `${GREEN} !important`,
-              "&:hover": { bgcolor: activePanel === "home" ? GREEN : "rgba(0,95,2,.08)" },
+              color: activePanel === "home" ? CREAM : GREEN,
+              fontWeight: activePanel === "home" ? 700 : 500,
+              textTransform: "none",
+              "&:hover": { 
+                bgcolor: activePanel === "home" ? "#004a01" : "rgba(0,95,2,.08)",
+                color: activePanel === "home" ? CREAM : GREEN,
+              },
             }}
           >
             Loyola Lineup
@@ -223,8 +466,13 @@ export default function GameCrud() {
             sx={{
               bgcolor: activePanel === "opp" ? GREEN : "transparent",
               borderColor: GREEN,
-              color: activePanel === "opp" ? "#fff !important" : `${GREEN} !important`,
-              "&:hover": { bgcolor: activePanel === "opp" ? GREEN : "rgba(0,95,2,.08)" },
+              color: activePanel === "opp" ? CREAM : GREEN,
+              fontWeight: activePanel === "opp" ? 700 : 500,
+              textTransform: "none",
+              "&:hover": { 
+                bgcolor: activePanel === "opp" ? "#004a01" : "rgba(0,95,2,.08)",
+                color: activePanel === "opp" ? CREAM : GREEN,
+              },
             }}
           >
             Opponent
@@ -389,10 +637,34 @@ export default function GameCrud() {
                 </Stack>
 
                 <Stack direction="row" spacing={1.5} sx={{ mt: 2.5, flexWrap: "wrap" }}>
-                  <Button variant="contained" onClick={handleCreate} disabled={!!isSubmitting} sx={{ bgcolor: GREEN }}>
+                  <Button 
+                    variant="contained" 
+                    onClick={handleCreate} 
+                    disabled={!!isSubmitting} 
+                    sx={{ 
+                      bgcolor: GREEN,
+                      color: CREAM,
+                      fontWeight: 700,
+                      textTransform: "none",
+                      "&:hover": { 
+                        bgcolor: "#004a01",
+                        color: CREAM,
+                      },
+                    }}
+                  >
                     {isSubmitting ? "Creating…" : "Create Game"}
                   </Button>
-                  <Button variant="outlined" onClick={() => setActivePanel("opp")} sx={{ borderColor: GREEN, color: GREEN }}>
+                  <Button 
+                    variant="outlined" 
+                    onClick={() => setActivePanel("opp")} 
+                    sx={{ 
+                      borderColor: GREEN, 
+                      color: GREEN,
+                      fontWeight: 500,
+                      textTransform: "none",
+                      "&:hover": { bgcolor: "rgba(0,95,2,.08)" },
+                    }}
+                  >
                     → Opponent
                   </Button>
                 </Stack>
@@ -455,10 +727,34 @@ export default function GameCrud() {
                 </Stack>
 
                 <Stack direction="row" spacing={1.5} sx={{ mt: 2.5, flexWrap: "wrap" }}>
-                  <Button variant="outlined" onClick={() => setActivePanel("home")} sx={{ borderColor: GREEN, color: GREEN }}>
+                  <Button 
+                    variant="outlined" 
+                    onClick={() => setActivePanel("home")} 
+                    sx={{ 
+                      borderColor: GREEN, 
+                      color: GREEN,
+                      fontWeight: 500,
+                      textTransform: "none",
+                      "&:hover": { bgcolor: "rgba(0,95,2,.08)" },
+                    }}
+                  >
                     ← Back to Loyola
                   </Button>
-                  <Button variant="contained" onClick={handleCreate} disabled={!!isSubmitting} sx={{ bgcolor: GREEN }}>
+                  <Button 
+                    variant="contained" 
+                    onClick={handleCreate} 
+                    disabled={!!isSubmitting} 
+                    sx={{ 
+                      bgcolor: GREEN,
+                      color: CREAM,
+                      fontWeight: 700,
+                      textTransform: "none",
+                      "&:hover": { 
+                        bgcolor: "#004a01",
+                        color: CREAM,
+                      },
+                    }}
+                  >
                     {isSubmitting ? "Creating…" : "Create Game"}
                   </Button>
                 </Stack>
@@ -466,6 +762,145 @@ export default function GameCrud() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Games Management Table */}
+        <Paper
+          elevation={6}
+          sx={{
+            borderRadius: 4,
+            p: { xs: 2.5, md: 3 },
+            mt: 4,
+            boxShadow: "0 10px 30px rgba(0,0,0,.12)",
+          }}
+        >
+          <Typography sx={{ fontWeight: 900, color: GREEN, mb: 2 }}>Manage Games</Typography>
+          
+          {games.length === 0 ? (
+            <Typography sx={{ textAlign: "center", py: 4, color: GREEN, opacity: 0.7 }}>
+              No games created yet. Create your first game above!
+            </Typography>
+          ) : (
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Date</TableCell>
+                    <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Team</TableCell>
+                    <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Opponent</TableCell>
+                    <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Type</TableCell>
+                    <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Score</TableCell>
+                    <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {games.map((game) => (
+                    <TableRow key={game._id}>
+                      <TableCell sx={{ color: GREEN }}>
+                        {new Date(game.gameDate).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell sx={{ color: GREEN }}>
+                        {teams.find(t => t.id === game.teamId)?.name || 'Unknown Team'}
+                      </TableCell>
+                      <TableCell sx={{ color: GREEN }}>
+                        {game.opponentTeamName}
+                      </TableCell>
+                      <TableCell sx={{ color: GREEN }}>
+                        <Chip 
+                          label={game.gameType} 
+                          size="small" 
+                          sx={{ 
+                            bgcolor: "rgba(0,95,2,.1)", 
+                            color: GREEN,
+                            fontSize: 12
+                          }} 
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                          <IconButton
+                            size="small"
+                            onClick={() => updateGameScore(game._id, 'team', -1)}
+                            sx={{ color: GREEN }}
+                          >
+                            <RemoveIcon fontSize="small" />
+                          </IconButton>
+                          <Typography sx={{ color: GREEN, minWidth: 30, textAlign: "center" }}>
+                            {game.teamScore || 0}
+                          </Typography>
+                          <IconButton
+                            size="small"
+                            onClick={() => updateGameScore(game._id, 'team', 1)}
+                            sx={{ color: GREEN }}
+                          >
+                            <AddIcon fontSize="small" />
+                          </IconButton>
+                          <Typography sx={{ color: GREEN, mx: 1 }}>vs</Typography>
+                          <IconButton
+                            size="small"
+                            onClick={() => updateGameScore(game._id, 'opponent', -1)}
+                            sx={{ color: GREEN }}
+                          >
+                            <RemoveIcon fontSize="small" />
+                          </IconButton>
+                          <Typography sx={{ color: GREEN, minWidth: 30, textAlign: "center" }}>
+                            {game.opponentScore || 0}
+                          </Typography>
+                          <IconButton
+                            size="small"
+                            onClick={() => updateGameScore(game._id, 'opponent', 1)}
+                            sx={{ color: GREEN }}
+                          >
+                            <AddIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <Box sx={{ display: "flex", gap: 1 }}>
+                          <IconButton
+                            size="small"
+                            onClick={() => loadGameForEdit(game)}
+                            sx={{ color: GREEN }}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            onClick={() => deleteGame(game._id)}
+                            sx={{ color: "#d32f2f" }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+
+          {hasChanges && (
+            <Box sx={{ mt: 3, textAlign: "center" }}>
+              <Button
+                variant="contained"
+                onClick={syncChanges}
+                disabled={isSubmitting}
+                sx={{
+                  bgcolor: GREEN,
+                  color: CREAM,
+                  fontWeight: 700,
+                  textTransform: "none",
+                  "&:hover": {
+                    bgcolor: "#004a01",
+                    color: CREAM,
+                  },
+                }}
+              >
+                {isSubmitting ? "Syncing…" : "Submit Changes to Database"}
+              </Button>
+            </Box>
+          )}
+        </Paper>
       </Container>
     </Box>
   );

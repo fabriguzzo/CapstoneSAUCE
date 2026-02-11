@@ -13,9 +13,25 @@ import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
+import mongoose from 'mongoose';
+
+// Import routes
+import teamsRouter from './routes/teams';
+import playersRouter from './routes/players';
+import gamesRouter from './routes/games';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Connect to MongoDB
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/capstone-sauce';
+
+mongoose.connect(MONGODB_URI)
+  .then(() => console.log('Connected to MongoDB'))
+  .catch((err) => {
+    console.error('MongoDB connection error:', err);
+    process.exit(1);
+  });
 
 // CORS configuration
 const corsOptions = {
@@ -72,6 +88,11 @@ Message: ${message}
 app.options('/api/feedback', cors(corsOptions), (req, res) => {
   res.sendStatus(200);
 });
+
+// API Routes
+app.use('/api/teams', teamsRouter);
+app.use('/api/players', playersRouter);
+app.use('/api/games', gamesRouter);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
