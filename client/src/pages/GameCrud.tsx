@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Box,
   Container,
@@ -44,6 +44,23 @@ export type CreateGamePayload = {
 
 const CREAM = "#fff2d1";
 const GREEN = "#005F02";
+const GREEN_TEXT_SX = {
+  color: GREEN,
+  "& .MuiTypography-root": { color: `${GREEN} !important` },
+  "& .MuiButton-root": { color: `${GREEN} !important` },
+  "& .MuiInputBase-input": { color: `${GREEN} !important` },
+  "& .MuiInputLabel-root": { color: `${GREEN} !important` },
+  "& .MuiFormLabel-root.Mui-focused": { color: `${GREEN} !important` },
+  "& .MuiSelect-icon": { color: `${GREEN} !important` },
+  "& .MuiInputBase-input::placeholder": { color: `${GREEN} !important`, opacity: 1 },
+};
+const SELECT_MENU_PROPS = {
+  PaperProps: {
+    sx: {
+      "& .MuiMenuItem-root": { color: GREEN },
+    },
+  },
+};
 
 const GAME_TYPES = [
   { value: "regular-season", label: "Regular Season" },
@@ -170,7 +187,7 @@ export default function GameCrud() {
   }
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, py: { xs: 6, md: 8 } }}>
+    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, py: { xs: 6, md: 8 }, ...GREEN_TEXT_SX }}>
       <Container maxWidth="lg">
         <Typography
           sx={{
@@ -193,7 +210,7 @@ export default function GameCrud() {
             sx={{
               bgcolor: activePanel === "home" ? GREEN : "transparent",
               borderColor: GREEN,
-              color: activePanel === "home" ? "#fff" : GREEN,
+              color: activePanel === "home" ? "#fff !important" : `${GREEN} !important`,
               "&:hover": { bgcolor: activePanel === "home" ? GREEN : "rgba(0,95,2,.08)" },
             }}
           >
@@ -206,7 +223,7 @@ export default function GameCrud() {
             sx={{
               bgcolor: activePanel === "opp" ? GREEN : "transparent",
               borderColor: GREEN,
-              color: activePanel === "opp" ? "#fff" : GREEN,
+              color: activePanel === "opp" ? "#fff !important" : `${GREEN} !important`,
               "&:hover": { bgcolor: activePanel === "opp" ? GREEN : "rgba(0,95,2,.08)" },
             }}
           >
@@ -234,11 +251,18 @@ export default function GameCrud() {
                 <Typography sx={{ fontWeight: 900, color: GREEN, mb: 1.2 }}>Game Details</Typography>
 
                 <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mb: 2 }}>
-                  <TextField select fullWidth label="Your Team" value={teamId} onChange={(e) => setTeamId(e.target.value)}sx={{
-                    "& .MuiInputLabel-root": { color: GREEN },
-                    "& .MuiOutlinedInput-root fieldset": { borderColor: GREEN },
-                    "& .MuiSelect-icon": { color: GREEN },
-                    "& input": { color: GREEN }}}>
+                  <TextField
+                    select
+                    fullWidth
+                    label="Your Team"
+                    value={teamId}
+                    onChange={(e) => setTeamId(e.target.value)}
+                    slotProps={{
+                      select: {
+                        MenuProps: SELECT_MENU_PROPS,
+                      },
+                    }}
+                  >
                     <MenuItem value="">Select…</MenuItem>
                     {teams.map((t) => (
                       <MenuItem key={t.id} value={t.id}>
@@ -247,11 +271,18 @@ export default function GameCrud() {
                     ))}
                   </TextField>
 
-                  <TextField select fullWidth label="Game Type" value={gameType} onChange={(e) => setGameType(e.target.value)}sx={{
-                      "& .MuiInputLabel-root": { color: GREEN },
-                      "& .MuiOutlinedInput-root fieldset": { borderColor: GREEN },
-                      "& .MuiSelect-icon": { color: GREEN },
-                      "& input": { color: GREEN }}}>
+                  <TextField
+                    select
+                    fullWidth
+                    label="Game Type"
+                    value={gameType}
+                    onChange={(e) => setGameType(e.target.value)}
+                    slotProps={{
+                      select: {
+                        MenuProps: SELECT_MENU_PROPS,
+                      },
+                    }}
+                  >
                     <MenuItem value="">Select…</MenuItem>
                     {GAME_TYPES.map((t) => (
                       <MenuItem key={t.value} value={t.value}>
@@ -267,11 +298,6 @@ export default function GameCrud() {
                     value={gameDate}
                     onChange={(e) => setGameDate(e.target.value)}
                     InputLabelProps={{ shrink: true }}
-                    sx={{
-                  "& .MuiInputLabel-root": { color: GREEN },
-                  "& .MuiOutlinedInput-root fieldset": { borderColor: GREEN },
-                  "& .MuiSelect-icon": { color: GREEN },
-                  "& input": { color: GREEN }}}
                   />
                 </Stack>
 
@@ -317,7 +343,7 @@ export default function GameCrud() {
                     <Typography sx={{ fontWeight: 1000, color: GREEN, mb: 1 }}>Bench (9)</Typography>
 
                     <Stack spacing={1.2}>
-                      {(["B1","B2","B3","B4","B5","B6","B7","B8","B9"] as LineupSlot[]).map((slot, idx) => (
+                      {(["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9"] as LineupSlot[]).map((slot, idx) => (
                         <Stack key={slot} direction="row" spacing={1} alignItems="center">
                           <Box
                             sx={{
@@ -343,6 +369,11 @@ export default function GameCrud() {
                             label="Player"
                             value={lineup[slot]}
                             onChange={(e) => setLineupSlot(slot, e.target.value)}
+                            slotProps={{
+                              select: {
+                                MenuProps: SELECT_MENU_PROPS,
+                              },
+                            }}
                           >
                             <MenuItem value="">Select…</MenuItem>
                             {optionsFor(slot).map((p) => (
@@ -489,7 +520,19 @@ function StarterSlot({
 
       <Typography sx={{ fontSize: 12, fontWeight: 900, color: GREEN, mb: 0.8 }}>{title}</Typography>
 
-      <TextField select size="small" fullWidth label="Player" value={value} onChange={(e) => onChange(e.target.value)}>
+      <TextField
+        select
+        size="small"
+        fullWidth
+        label="Player"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        slotProps={{
+          select: {
+            MenuProps: SELECT_MENU_PROPS,
+          },
+        }}
+      >
         <MenuItem value="">Select…</MenuItem>
         {options.map((p) => (
           <MenuItem key={p.id} value={p.id}>
