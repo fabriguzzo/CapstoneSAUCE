@@ -106,10 +106,7 @@ export default function LandingPage() {
   };
 
   const handleContactClick = () => {
-    navigate('/about');
-    setTimeout(() => {
-      aboutSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }, 100);
+    navigate('/contact');
   };
 
   const handleSignUpClick = () => {
