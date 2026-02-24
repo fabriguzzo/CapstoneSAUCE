@@ -28,6 +28,19 @@ type TeamOption = { id: string; name: string };
 type RosterPlayer = { id: string; number: number; name: string };
 type OppPlayer = { number: string; name: string };
 
+interface ApiTeam { _id: string; name: string }
+interface ApiPlayer { _id: string; number: number; name: string }
+interface ApiOppPlayer { number: number; name: string }
+interface ApiGame {
+  _id: string;
+  teamId: string;
+  gameType: string;
+  gameDate: string;
+  lineup: { playerId: string; slot: number }[];
+  opponent?: { teamName?: string; roster?: ApiOppPlayer[] };
+  score?: { us?: number; them?: number };
+}
+
 type LineupSlot =
   | "G"
   | "LD"
@@ -72,7 +85,6 @@ const GREEN = "#005F02";
 const GREEN_TEXT_SX = {
   color: GREEN,
   "& .MuiTypography-root": { color: `${GREEN} !important` },
-  "& .MuiButton-root": { color: `${GREEN} !important` },
   "& .MuiInputBase-input": { color: `${GREEN} !important` },
   "& .MuiInputLabel-root": { color: `${GREEN} !important` },
   "& .MuiFormLabel-root.Mui-focused": { color: `${GREEN} !important` },
@@ -135,8 +147,9 @@ export default function GameCrud() {
         throw new Error('Failed to fetch teams');
       }
       const data = await response.json();
-      setTeams(data.map((t: any) => ({ id: t._id, name: t.name })));
+      setTeams(data.map((t: ApiTeam) => ({ id: t._id, name: t.name })));
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.error('Error fetching teams:', err);
       setLoadError('Failed to load teams. Please try again.');
     } finally {
@@ -152,8 +165,9 @@ export default function GameCrud() {
         throw new Error('Failed to fetch players');
       }
       const data = await response.json();
-      setRoster(data.map((p: any) => ({ id: p._id, number: p.number, name: p.name })));
+      setRoster(data.map((p: ApiPlayer) => ({ id: p._id, number: p.number, name: p.name })));
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.error('Error fetching players:', err);
       setLoadError('Failed to load players. Please try again.');
     } finally {
@@ -168,8 +182,19 @@ export default function GameCrud() {
         throw new Error('Failed to fetch games');
       }
       const data = await response.json();
-      setGames(data);
+      const mappedGames = data.map((game: ApiGame) => ({
+        ...game,
+        opponentTeamName: game.opponent?.teamName || "",
+        opponentRoster: game.opponent?.roster?.map((p: ApiOppPlayer) => ({
+          number: String(p.number),
+          name: p.name,
+        })) || [],
+        teamScore: game.score?.us ?? 0,
+        opponentScore: game.score?.them ?? 0,
+      }));
+      setGames(mappedGames);
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.error('Error fetching games:', err);
     }
   }
@@ -294,6 +319,7 @@ export default function GameCrud() {
 
       const createdGame = await response.json();
       alert('Game created successfully!');
+      // eslint-disable-next-line no-console
       console.log('Created game:', createdGame);
       
       // Refresh games list
@@ -321,9 +347,75 @@ export default function GameCrud() {
         B8: '',
         B9: '',
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      // eslint-disable-next-line no-console
       console.error('Error creating game:', err);
-      alert(`Failed to create game: ${err.message}`);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      alert(`Failed to create game: ${message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleUpdate() {
+    if (!editingGame) return;
+    
+    const err = validate();
+    if (err) {
+      alert(err);
+      return;
+    }
+    const payload = buildPayload();
+    
+    try {
+      setIsSubmitting(true);
+      const response = await fetch(`${API_BASE_URL}/api/games/${editingGame}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update game');
+      }
+
+      const updatedGame = await response.json();
+      alert('Game updated successfully!');
+      // eslint-disable-next-line no-console
+      console.log('Updated game:', updatedGame);
+      
+      fetchGames();
+      
+      setEditingGame(null);
+      setGameType('');
+      setGameDate('');
+      setOppTeamName('');
+      setOppRoster(Array.from({ length: 15 }, () => ({ number: '', name: '' })));
+      setLineup({
+        G: '',
+        LD: '',
+        RD: '',
+        LW: '',
+        C: '',
+        RW: '',
+        B1: '',
+        B2: '',
+        B3: '',
+        B4: '',
+        B5: '',
+        B6: '',
+        B7: '',
+        B8: '',
+        B9: '',
+      });
+    } catch (err: unknown) {
+      // eslint-disable-next-line no-console
+      console.error('Error updating game:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      alert(`Failed to update game: ${message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -353,6 +445,9 @@ export default function GameCrud() {
     // Load opponent roster
     setOppRoster(game.opponentRoster.map(p => ({ number: p.number, name: p.name })));
     
+    // Fetch players for the team to populate dropdowns
+    fetchPlayers(game.teamId);
+    
     // Load scores
     setGames(prev => prev.map(g => 
       g._id === game._id ? { ...g, editing: true } : g
@@ -375,10 +470,25 @@ export default function GameCrud() {
     }));
   }
 
-  function deleteGame(gameId: string) {
+  async function deleteGame(gameId: string) {
     if (confirm('Are you sure you want to delete this game?')) {
-      setGames(prev => prev.filter(g => g._id !== gameId));
-      setHasChanges(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/games/${gameId}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to delete game');
+        }
+        
+        setGames(prev => prev.filter(g => g._id !== gameId));
+      } catch (err: unknown) {
+        // eslint-disable-next-line no-console
+        console.error('Error deleting game:', err);
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        alert(`Failed to delete game: ${message}`);
+      }
     }
   }
 
@@ -386,25 +496,26 @@ export default function GameCrud() {
     try {
       setIsSubmitting(true);
       
-      // Update games with score changes
       const gamesWithScores = games.filter(g => g.teamScore !== undefined || g.opponentScore !== undefined);
       
       for (const game of gamesWithScores) {
-        await fetch(`${API_BASE_URL}/api/games/${game._id}`, {
+        await fetch(`${API_BASE_URL}/api/games/${game._id}/score`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            teamScore: game.teamScore,
-            opponentScore: game.opponentScore,
+            us: game.teamScore,
+            them: game.opponentScore,
           }),
         });
       }
       
       setHasChanges(false);
       alert('Changes synced successfully!');
-    } catch (err: any) {
+    } catch (err: unknown) {
+      // eslint-disable-next-line no-console
       console.error('Error syncing changes:', err);
-      alert(`Failed to sync changes: ${err.message}`);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      alert(`Failed to sync changes: ${message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -432,7 +543,7 @@ export default function GameCrud() {
             fontFamily: "Oswald, sans-serif",
           }}
         >
-          Create Game
+          {editingGame ? "Edit Game" : "Create Game"}
         </Typography>
 
         {loadError && (
@@ -637,9 +748,35 @@ export default function GameCrud() {
                 </Stack>
 
                 <Stack direction="row" spacing={1.5} sx={{ mt: 2.5, flexWrap: "wrap" }}>
+                  {editingGame && (
+                    <Button 
+                      variant="outlined" 
+                      onClick={() => {
+                        setEditingGame(null);
+                        setGameType('');
+                        setGameDate('');
+                        setOppTeamName('');
+                        setOppRoster(Array.from({ length: 15 }, () => ({ number: '', name: '' })));
+                        setLineup({
+                          G: '', LD: '', RD: '', LW: '', C: '', RW: '',
+                          B1: '', B2: '', B3: '', B4: '', B5: '',
+                          B6: '', B7: '', B8: '', B9: '',
+                        });
+                      }}
+                      sx={{ 
+                        borderColor: GREEN, 
+                        color: GREEN,
+                        fontWeight: 500,
+                        textTransform: "none",
+                        "&:hover": { bgcolor: "rgba(0,95,2,.08)" },
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  )}
                   <Button 
                     variant="contained" 
-                    onClick={handleCreate} 
+                    onClick={editingGame ? handleUpdate : handleCreate}
                     disabled={!!isSubmitting} 
                     sx={{ 
                       bgcolor: GREEN,
@@ -652,21 +789,23 @@ export default function GameCrud() {
                       },
                     }}
                   >
-                    {isSubmitting ? "Creating…" : "Create Game"}
+                    {isSubmitting ? (editingGame ? "Saving…" : "Creating…") : (editingGame ? "Save and Push" : "Create Game")}
                   </Button>
-                  <Button 
-                    variant="outlined" 
-                    onClick={() => setActivePanel("opp")} 
-                    sx={{ 
-                      borderColor: GREEN, 
-                      color: GREEN,
-                      fontWeight: 500,
-                      textTransform: "none",
-                      "&:hover": { bgcolor: "rgba(0,95,2,.08)" },
-                    }}
-                  >
-                    → Opponent
-                  </Button>
+                  {!editingGame && (
+                    <Button 
+                      variant="outlined" 
+                      onClick={() => setActivePanel("opp")} 
+                      sx={{ 
+                        borderColor: GREEN, 
+                        color: GREEN,
+                        fontWeight: 500,
+                        textTransform: "none",
+                        "&:hover": { bgcolor: "rgba(0,95,2,.08)" },
+                      }}
+                    >
+                      → Opponent
+                    </Button>
+                  )}
                 </Stack>
               </Paper>
             </motion.div>
@@ -727,22 +866,50 @@ export default function GameCrud() {
                 </Stack>
 
                 <Stack direction="row" spacing={1.5} sx={{ mt: 2.5, flexWrap: "wrap" }}>
-                  <Button 
-                    variant="outlined" 
-                    onClick={() => setActivePanel("home")} 
-                    sx={{ 
-                      borderColor: GREEN, 
-                      color: GREEN,
-                      fontWeight: 500,
-                      textTransform: "none",
-                      "&:hover": { bgcolor: "rgba(0,95,2,.08)" },
-                    }}
-                  >
-                    ← Back to Loyola
-                  </Button>
+                  {editingGame && (
+                    <Button 
+                      variant="outlined" 
+                      onClick={() => {
+                        setEditingGame(null);
+                        setGameType('');
+                        setGameDate('');
+                        setOppTeamName('');
+                        setOppRoster(Array.from({ length: 15 }, () => ({ number: '', name: '' })));
+                        setLineup({
+                          G: '', LD: '', RD: '', LW: '', C: '', RW: '',
+                          B1: '', B2: '', B3: '', B4: '', B5: '',
+                          B6: '', B7: '', B8: '', B9: '',
+                        });
+                      }}
+                      sx={{ 
+                        borderColor: GREEN, 
+                        color: GREEN,
+                        fontWeight: 500,
+                        textTransform: "none",
+                        "&:hover": { bgcolor: "rgba(0,95,2,.08)" },
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                  {!editingGame && (
+                    <Button 
+                      variant="outlined" 
+                      onClick={() => setActivePanel("home")} 
+                      sx={{ 
+                        borderColor: GREEN, 
+                        color: GREEN,
+                        fontWeight: 500,
+                        textTransform: "none",
+                        "&:hover": { bgcolor: "rgba(0,95,2,.08)" },
+                      }}
+                    >
+                      ← Back to Loyola
+                    </Button>
+                  )}
                   <Button 
                     variant="contained" 
-                    onClick={handleCreate} 
+                    onClick={editingGame ? handleUpdate : handleCreate}
                     disabled={!!isSubmitting} 
                     sx={{ 
                       bgcolor: GREEN,
@@ -755,7 +922,7 @@ export default function GameCrud() {
                       },
                     }}
                   >
-                    {isSubmitting ? "Creating…" : "Create Game"}
+                    {isSubmitting ? (editingGame ? "Saving…" : "Creating…") : (editingGame ? "Save and Push" : "Create Game")}
                   </Button>
                 </Stack>
               </Paper>

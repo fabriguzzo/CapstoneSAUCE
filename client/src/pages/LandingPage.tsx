@@ -117,6 +117,10 @@ export default function LandingPage() {
     navigate('/gamecrud');
   };
 
+  const handlePlayerTeamCrudClick = () => {
+    navigate('/playerteamcrud');
+  };
+
   return (
     <Box>
       {/* Navigation Header */}
@@ -146,6 +150,13 @@ export default function LandingPage() {
                 sx={{ color: 'text.primary' }}
               >
                 GameCRUD
+              </Button>
+              <Button
+                variant="text"
+                onClick={handlePlayerTeamCrudClick}
+                sx={{ color: 'text.primary' }}
+              >
+                Team & Player CRUD
               </Button>
               <Button 
                 variant="text" 
