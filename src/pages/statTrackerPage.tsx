@@ -536,7 +536,7 @@ export default function StatTrackerPage() {
                 </Stack>
 
                 {/* Swipe row */}
-                <Box sx={{ overflow: "hidden" }}>
+                <Box sx={{ overflow: "visible" }}>
                   <Box
                     component={motion.div}
                     drag="x"
@@ -722,19 +722,19 @@ function PlayerFifaCard({
   return (
     <Paper
       onClick={onClick}
-      elevation={8}
+      elevation={0}
       sx={{
         cursor: "pointer",
         borderRadius: "18px",
-        overflow: "hidden",
-        transition: "transform .15s ease, box-shadow .15s ease",
+        overflow: "visible",
+        transition: "transform .15s ease",
         "&:hover": { transform: isLg ? "none" : "translateY(-5px)" },
-        background: `linear-gradient(135deg, ${CARD_GOLD_1}, ${CARD_GOLD_2})`,
-        border: "1px solid rgba(0,0,0,.12)",
+        background: `linear-gradient(135deg, #0a3d0a, #1a5c1a)`,
+        border: "1px solid rgba(255,255,255,.15)",
         pointerEvents: isLg ? "none" : "auto",
       }}
     >
-      <Box sx={{ p: pad }}>
+      <Box sx={{ p: pad, color: "#fff" }}>
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
           <Box>
             <Typography sx={{ fontWeight: 1000, fontSize: numSize, lineHeight: 1 }}>
@@ -755,7 +755,7 @@ function PlayerFifaCard({
             mt: 1,
             height: silhouetteH,
             borderRadius: 2,
-            bgcolor: "rgba(0,0,0,.10)",
+            bgcolor: "rgba(255,255,255,.10)",
           }}
         />
 
@@ -771,7 +771,7 @@ function PlayerFifaCard({
           {player.name.toUpperCase()}
         </Typography>
 
-        <Divider sx={{ my: 1, opacity: 0.4 }} />
+        <Divider sx={{ my: 1, opacity: 0.4, borderColor: "rgba(255,255,255,.3)" }} />
 
         <Stack direction="row" justifyContent="space-between">
           <Box>
