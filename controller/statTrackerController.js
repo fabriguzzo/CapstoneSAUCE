@@ -217,3 +217,48 @@ exports.bulkSave = async function (req, res) {
     return res.status(500).json({ error: 'Failed to save stats' });
   }
 };
+
+// Get stat history (for graphing)
+exports.getHistory = async function (req, res) {
+  try {
+    const filter = {};
+    if (req.query.gameId) filter.gameId = req.query.gameId;
+    if (req.query.teamId) filter.teamId = req.query.teamId;
+    if (req.query.playerId) filter.playerId = req.query.playerId;
+
+    const history = await dao.getHistory(filter);
+    return res.status(200).json(history);
+  } catch (err) {
+    console.error('Error fetching stat history:', err);
+    return res.status(500).json({ error: 'Failed to retrieve stat history' });
+  }
+};
+
+// Get history for a specific player in a game
+exports.getPlayerHistory = async function (req, res) {
+  try {
+    const { gameId, playerId } = req.query;
+    if (!gameId) return res.status(400).json({ error: 'Game ID is required' });
+    if (!playerId) return res.status(400).json({ error: 'Player ID is required' });
+
+    const history = await dao.getPlayerHistory(gameId, playerId);
+    return res.status(200).json(history);
+  } catch (err) {
+    console.error('Error fetching player stat history:', err);
+    return res.status(500).json({ error: 'Failed to retrieve player stat history' });
+  }
+};
+
+// Get history for an entire game
+exports.getGameHistory = async function (req, res) {
+  try {
+    const gameId = req.params.gameId || req.query.gameId;
+    if (!gameId) return res.status(400).json({ error: 'Game ID is required' });
+
+    const history = await dao.getGameHistory(gameId);
+    return res.status(200).json(history);
+  } catch (err) {
+    console.error('Error fetching game stat history:', err);
+    return res.status(500).json({ error: 'Failed to retrieve game stat history' });
+  }
+};

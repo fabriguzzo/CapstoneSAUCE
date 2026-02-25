@@ -83,6 +83,9 @@ gamesRouter.delete('/', gameController.deleteAll);
 app.use('/api/games', gamesRouter);
 
 const statsRouter = express.Router();
+statsRouter.get('/history', statTrackerController.getHistory); // GET /api/stats/history?gameId=&playerId=
+statsRouter.get('/history/game/:gameId', statTrackerController.getGameHistory); // GET /api/stats/history/game/:gameId
+statsRouter.get('/history/player', statTrackerController.getPlayerHistory); // GET /api/stats/history/player?gameId=&playerId=
 statsRouter.get('/', statTrackerController.getAll);          // GET /api/stats?teamId=&gameId=
 statsRouter.get('/:id', statTrackerController.getOne);       // GET /api/stats/:id
 statsRouter.post('/', statTrackerController.create);         // POST /api/stats
