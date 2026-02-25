@@ -7,6 +7,7 @@ import AboutPage from './pages/AboutPage';
 import ContactPage from './pages/ContactPage';
 import GameCrud from './pages/GameCrud';
 import PlayerTeamCrud from './pages/PlayerTeamCrud';
+import StatTrackerPage from './pages/statTrackerPage';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/gamecrud" element={<GameCrud />} />
           <Route path="/playerteamcrud" element={<PlayerTeamCrud />} />
+          <Route path="/stattracker" element={<StatTrackerPage />} />
         </Routes>
       </Router>
     </ThemeProvider>

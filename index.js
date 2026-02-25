@@ -7,6 +7,7 @@ const gameController = require('./controller/gameController');
 const playerController = require('./controller/playerController');
 const teamController = require('./controller/teamController');
 const feedbackDao = require('./model/feedbackDao');
+const statTrackerController = require('./controller/statTrackerController');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -95,6 +96,17 @@ gamesRouter.put('/:id', gameController.updateGameInfo);
 gamesRouter.delete('/:id', gameController.deleteOne);
 gamesRouter.delete('/', gameController.deleteAll);
 app.use('/api/games', gamesRouter);
+
+const statsRouter = express.Router();
+statsRouter.get('/', statTrackerController.getAll);          // GET /api/stats?teamId=&gameId=
+statsRouter.get('/:id', statTrackerController.getOne);       // GET /api/stats/:id
+statsRouter.post('/', statTrackerController.create);         // POST /api/stats
+statsRouter.put('/:id', statTrackerController.update);       // PUT /api/stats/:id
+statsRouter.delete('/:id', statTrackerController.deleteOne); // DELETE /api/stats/:id
+statsRouter.delete('/', statTrackerController.deleteAll);    // DELETE /api/stats?teamId=&gameId=
+statsRouter.post('/bulk', statTrackerController.bulkSave);   // POST /api/stats/bulk   ✅ used by your UI
+
+app.use('/api/stats', statsRouter);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
