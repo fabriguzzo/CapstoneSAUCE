@@ -66,7 +66,7 @@ exports.getOne = async function (req, res) {
 exports.update = async function (req, res) {
   try {
     const id = req.params.id;
-    const { name, number, position } = req.body;
+    const { name, number, teamId, position } = req.body;
     const update = {};
 
     if (name !== undefined) {
@@ -85,6 +85,10 @@ exports.update = async function (req, res) {
 
     if (position !== undefined) {
       update.position = position.trim();
+    }
+
+    if (teamId !== undefined) {
+      update.teamId = teamId;
     }
 
     const updatedPlayer = await dao.update(id, update);

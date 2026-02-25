@@ -43,7 +43,7 @@ export default function ContactPage() {
       } else {
         setStatus('error');
       }
-    } catch (error) {
+    } catch {
       setStatus('error');
     } finally {
       setIsSubmitting(false);
@@ -137,10 +137,43 @@ export default function ContactPage() {
             Have feedback or questions? We&apos;d love to hear from you. Fill out the form below and we&apos;ll get back to you as soon as possible.
           </Typography>
 
+          <Box sx={{ mb: 3, textAlign: 'center' }}>
+            <Button
+              variant="text"
+              onClick={() => navigate('/feedback')}
+              sx={{
+                color: '#005F02',
+                textDecoration: 'underline',
+                '&:hover': {
+                  bgcolor: 'rgba(0, 95, 2, 0.1)',
+                },
+              }}
+            >
+              View All Feedback
+            </Button>
+          </Box>
+
           {status === 'success' && (
-            <Alert severity="success" sx={{ mb: 3 }}>
-              Thank you for your feedback! We&apos;ll review it shortly.
-            </Alert>
+            <Box sx={{ mb: 3 }}>
+              <Alert severity="success">
+                Thank you for your feedback! We&apos;ll review it shortly.
+              </Alert>
+              <Button
+                variant="outlined"
+                onClick={() => navigate('/feedback')}
+                sx={{
+                  mt: 2,
+                  borderColor: '#005F02',
+                  color: '#005F02',
+                  '&:hover': {
+                    borderColor: '#427A43',
+                    bgcolor: 'rgba(0, 95, 2, 0.1)',
+                  },
+                }}
+              >
+                View All Feedback
+              </Button>
+            </Box>
           )}
 
           {status === 'error' && (
