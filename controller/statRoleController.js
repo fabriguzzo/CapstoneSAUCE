@@ -1,3 +1,4 @@
+const dao = require("../model/statRoleDao");
 const mongoose = require("mongoose");
 require("../model/playerDao");
 const Player = mongoose.model("Player");
