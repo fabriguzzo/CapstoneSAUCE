@@ -11,6 +11,7 @@ import PlayerTeamCrud from './pages/PlayerTeamCrud';
 import StatTrackerPage from './pages/statTrackerPage';
 import GameHistory from './pages/GameHistory';
 import GameStats from './pages/GameStats';
+import StatRoleAssignPage from "./pages/statRoleAssignPage";
 
 function App() {
   return (
@@ -27,6 +28,7 @@ function App() {
           <Route path="/stattracker" element={<StatTrackerPage />} />
           <Route path="/gamehistory" element={<GameHistory />} />
           <Route path="/gamestats/:gameId" element={<GameStats />} />
+          <Route path="/assign-roles" element={<StatRoleAssignPage />} />
         </Routes>
       </Router>
     </ThemeProvider>
