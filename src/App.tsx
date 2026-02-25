@@ -9,6 +9,8 @@ import ViewFeedbackPage from './pages/ViewFeedbackPage';
 import GameCrud from './pages/GameCrud';
 import PlayerTeamCrud from './pages/PlayerTeamCrud';
 import StatTrackerPage from './pages/statTrackerPage';
+import GameHistory from './pages/GameHistory';
+import GameStats from './pages/GameStats';
 
 function App() {
   return (
@@ -23,6 +25,8 @@ function App() {
           <Route path="/gamecrud" element={<GameCrud />} />
           <Route path="/playerteamcrud" element={<PlayerTeamCrud />} />
           <Route path="/stattracker" element={<StatTrackerPage />} />
+          <Route path="/gamehistory" element={<GameHistory />} />
+          <Route path="/gamestats/:gameId" element={<GameStats />} />
         </Routes>
       </Router>
     </ThemeProvider>

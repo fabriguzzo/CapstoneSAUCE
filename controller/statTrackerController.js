@@ -79,13 +79,39 @@ exports.create = async function (req, res) {
   }
 };
 
-// Get all stat lines (filters)
+// Get all stat lines (filters) - returns latest stats from StatHistory
 exports.getAll = async function (req, res) {
   try {
+    const { gameId, teamId, playerId } = req.query;
+    
+    if (gameId) {
+      const history = await dao.getGameHistory(gameId);
+      const latestByPlayer = {};
+      for (const entry of history) {
+        const pid = entry.playerId.toString();
+        if (!latestByPlayer[pid] || new Date(entry.timestamp) > new Date(latestByPlayer[pid].timestamp)) {
+          latestByPlayer[pid] = entry;
+        }
+      }
+      const stats = Object.values(latestByPlayer).map(h => ({
+        gameId: h.gameId,
+        teamId: h.teamId,
+        playerId: h.playerId,
+        goals: h.goals,
+        assists: h.assists,
+        shots: h.shots,
+        hits: h.hits,
+        pim: h.pim,
+        plusMinus: h.plusMinus,
+        saves: h.saves,
+        goalsAgainst: h.goalsAgainst
+      }));
+      return res.status(200).json(stats);
+    }
+    
     const filter = {};
-    if (req.query.gameId) filter.gameId = req.query.gameId;
-    if (req.query.teamId) filter.teamId = req.query.teamId;
-    if (req.query.playerId) filter.playerId = req.query.playerId;
+    if (teamId) filter.teamId = teamId;
+    if (playerId) filter.playerId = playerId;
 
     const stats = await dao.readAll(filter);
     return res.status(200).json(stats);

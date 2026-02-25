@@ -117,6 +117,10 @@ export default function LandingPage() {
     navigate('/gamecrud');
   };
 
+  const handleGameHistoryClick = () => {
+    navigate('/gamehistory');
+  };
+
   const handlePlayerTeamCrudClick = () => {
     navigate('/playerteamcrud');
   };
@@ -144,6 +148,13 @@ export default function LandingPage() {
               SAUCE
             </Typography>
             <Box sx={{ display: 'flex', gap: 2 }}>
+              <Button
+                variant="text"
+                onClick={handleGameHistoryClick}
+                sx={{ color: 'text.primary' }}
+              >
+                Game History
+              </Button>
               <Button
                 variant="text"
                 onClick={handleGameCrudClick}
