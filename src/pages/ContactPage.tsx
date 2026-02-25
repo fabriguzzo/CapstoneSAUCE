@@ -134,12 +134,12 @@ export default function ContactPage() {
               color: '#005F02'
             }}
           >
-            Have feedback or questions? We'd love to hear from you. Fill out the form below and we'll get back to you as soon as possible.
+            Have feedback or questions? We&apos;d love to hear from you. Fill out the form below and we&apos;ll get back to you as soon as possible.
           </Typography>
 
           {status === 'success' && (
             <Alert severity="success" sx={{ mb: 3 }}>
-              Thank you for your feedback! We'll review it shortly.
+              Thank you for your feedback! We&apos;ll review it shortly.
             </Alert>
           )}
 

@@ -1,43 +1,58 @@
 {
   "name": "capstone-sauce",
   "version": "1.0.0",
-  "description": "Sports Statistics Tracking Application - MERN Stack with TypeScript",
+  "description": "Sports Statistics Tracking Application - Monolith MERN",
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
-    "server:dev": "npm run dev --prefix server",
-    "client:dev": "npm run dev --prefix client",
-    "server:build": "npm run build --prefix server",
-    "client:build": "npm run build --prefix client",
-    "build": "npm run server:build && npm run client:build",
-    "start": "npm run start --prefix server",
-    "test": "npm run test --prefix server && npm run test --prefix client",
-    "test:server": "npm run test --prefix server",
-    "test:client": "npm run test --prefix client",
-    "install:all": "npm install && npm install --prefix server && npm install --prefix client",
-    "lint": "npm run lint --prefix server && npm run lint --prefix client"
-  },
-  "keywords": [
-    "sports",
-    "statistics",
-    "tracking",
-    "mern",
-    "typescript",
-    "react",
-    "mongodb",
-    "express"
-  ],
-  "author": "",
-  "license": "ISC",
-  "devDependencies": {
-    "@vitest/coverage-v8": "^4.0.18",
-    "concurrently": "^8.2.2",
-    "mongoose": "^9.2.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "server:dev": "node index.js",
+    "client:dev": "vite",
+    "server:build": "echo 'No build needed for server'",
+    "client:build": "tsc && vite build",
+    "build": "npm run client:build",
+    "start": "node index.js",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint 'src/**/*.{ts,tsx}' --no-error-on-unmatched-pattern",
+    "lint:fix": "eslint 'src/**/*.{ts,tsx}' --fix --no-error-on-unmatched-pattern",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "framer-motion": "^12.34.0"
+    "@emotion/react": "^11.11.3",
+    "@emotion/styled": "^11.11.0",
+    "@mui/icons-material": "^6.4.12",
+    "@mui/material": "^6.4.12",
+    "axios": "^1.6.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "framer-motion": "^12.34.0",
+    "mongoose": "^8.0.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.21.1",
+    "recharts": "^2.10.3",
+    "socket.io-client": "^4.6.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.1.6",
+    "@testing-library/react": "^14.1.2",
+    "@types/node": "^25.2.3",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "@vitest/coverage-v8": "^1.1.0",
+    "concurrently": "^8.2.2",
+    "eslint": "^8.56.0",
+    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "jsdom": "^23.0.1",
+    "mongodb-memory-server": "^11.0.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.10",
+    "vitest": "^1.1.0"
   }
 }

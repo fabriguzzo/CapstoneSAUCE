@@ -5,10 +5,10 @@ import { Box, Container, Typography, Link, Stack, Paper, Button } from '@mui/mat
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 
-import goalImage from "../client/src/Images/HockeyGoal2-AboutUs.jpg";
-import fabrizioImg from "../client/src/Images/HockeyGoal-AboutUs.jpeg";
-import stuartImg from "../client/src/Images/StuartFillerImageABTUS.jpeg";
-import matthewImg from "../client/src/Images/MattBarrowFillerABTUS.jpeg";
+import goalImage from "../Images/HockeyGoal2-AboutUs.jpg";
+import fabrizioImg from "../Images/HockeyGoal-AboutUs.jpeg";
+import stuartImg from "../Images/StuartFillerImageABTUS.jpeg";
+import matthewImg from "../Images/MattBarrowFillerABTUS.jpeg";
 
 // Page Comp
 function AboutPage() {
@@ -102,6 +102,8 @@ function AboutPage() {
 
     return { opacity, y };
   });
+
+  const progressTransforms = useTransform(scrollYProgress, [0, 0.1], [1, 0]);
 
   return (
     <Box sx={{ bgcolor: 'common.black' }}>
