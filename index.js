@@ -6,7 +6,7 @@ const mongoose = require('mongoose');
 const gameController = require('./controller/gameController');
 const playerController = require('./controller/playerController');
 const teamController = require('./controller/teamController');
-const feedbackDao = require('./model/feedbackDao');
+const feedbackController = require('./controller/feedbackController');
 const statTrackerController = require('./controller/statTrackerController');
 
 const app = express();
@@ -41,28 +41,13 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-app.post('/api/feedback', async (req, res) => {
-  const { email, subject, message, timestamp } = req.body;
-  
-  if (!email || !subject || !message) {
-    return res.status(400).json({ error: 'Email, subject, and message are required' });
-  }
+app.post('/api/feedback', feedbackController.create);
 
-  try {
-    const feedbackData = {
-      email,
-      subject,
-      message,
-      timestamp: timestamp || new Date()
-    };
-    
-    await feedbackDao.create(feedbackData);
-    res.status(200).json({ message: 'Feedback saved successfully' });
-  } catch (err) {
-    console.error('Error saving feedback:', err);
-    res.status(500).json({ error: 'Failed to save feedback' });
-  }
+app.options('/api/feedback', cors(corsOptions), (req, res) => {
+  res.sendStatus(200);
 });
+
+app.get('/api/feedback', feedbackController.getAll);
 
 app.options('/api/feedback', cors(corsOptions), (req, res) => {
   res.sendStatus(200);

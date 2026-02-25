@@ -5,6 +5,7 @@ import theme from './theme';
 import LandingPage from './pages/LandingPage';
 import AboutPage from './pages/AboutPage';
 import ContactPage from './pages/ContactPage';
+import ViewFeedbackPage from './pages/ViewFeedbackPage';
 import GameCrud from './pages/GameCrud';
 import PlayerTeamCrud from './pages/PlayerTeamCrud';
 import StatTrackerPage from './pages/statTrackerPage';
@@ -18,6 +19,7 @@ function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/contact" element={<ContactPage />} />
+          <Route path="/feedback" element={<ViewFeedbackPage />} />
           <Route path="/gamecrud" element={<GameCrud />} />
           <Route path="/playerteamcrud" element={<PlayerTeamCrud />} />
           <Route path="/stattracker" element={<StatTrackerPage />} />
