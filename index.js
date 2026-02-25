@@ -8,6 +8,7 @@ const playerController = require('./controller/playerController');
 const teamController = require('./controller/teamController');
 const feedbackController = require('./controller/feedbackController');
 const statTrackerController = require('./controller/statTrackerController');
+const statRoleController = require("./controller/statRoleController");
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -83,15 +84,19 @@ gamesRouter.delete('/', gameController.deleteAll);
 app.use('/api/games', gamesRouter);
 
 const statsRouter = express.Router();
-statsRouter.get('/', statTrackerController.getAll);          // GET /api/stats?teamId=&gameId=
-statsRouter.get('/:id', statTrackerController.getOne);       // GET /api/stats/:id
-statsRouter.post('/', statTrackerController.create);         // POST /api/stats
-statsRouter.put('/:id', statTrackerController.update);       // PUT /api/stats/:id
-statsRouter.delete('/:id', statTrackerController.deleteOne); // DELETE /api/stats/:id
-statsRouter.delete('/', statTrackerController.deleteAll);    // DELETE /api/stats?teamId=&gameId=
-statsRouter.post('/bulk', statTrackerController.bulkSave);   // POST /api/stats/bulk   ✅ used by your UI
-
+statsRouter.get('/', statTrackerController.getAll);          
+statsRouter.get('/:id', statTrackerController.getOne);      
+statsRouter.post('/', statTrackerController.create);         
+statsRouter.put('/:id', statTrackerController.update);       
+statsRouter.delete('/:id', statTrackerController.deleteOne); 
+statsRouter.delete('/', statTrackerController.deleteAll);    
+statsRouter.post('/bulk', statTrackerController.bulkSave);   
 app.use('/api/stats', statsRouter);
+
+const rolesRouter = express.Router();
+rolesRouter.get("/", statRoleController.getAll);
+rolesRouter.post("/bulk", statRoleController.bulkSave);
+app.use("/api/stat-roles", rolesRouter);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

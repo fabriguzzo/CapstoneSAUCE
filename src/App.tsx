@@ -9,6 +9,7 @@ import ViewFeedbackPage from './pages/ViewFeedbackPage';
 import GameCrud from './pages/GameCrud';
 import PlayerTeamCrud from './pages/PlayerTeamCrud';
 import StatTrackerPage from './pages/statTrackerPage';
+import StatRoleAssignPage from "./pages/statRoleAssignPage";
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
           <Route path="/gamecrud" element={<GameCrud />} />
           <Route path="/playerteamcrud" element={<PlayerTeamCrud />} />
           <Route path="/stattracker" element={<StatTrackerPage />} />
+          <Route path="/assign-roles" element={<StatRoleAssignPage />} />
         </Routes>
       </Router>
     </ThemeProvider>
