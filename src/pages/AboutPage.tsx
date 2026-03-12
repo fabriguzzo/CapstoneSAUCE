@@ -6,7 +6,7 @@ import { motion, useScroll, useTransform } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 
 import goalImage from "../Images/HockeyGoal2-AboutUs.jpg";
-import fabrizioImg from "../Images/HockeyGoal-AboutUs.jpeg";
+import fabrizioImg from "../Images/Fabri.png";
 import stuartImg from "../Images/StuartFillerImageABTUS.jpeg";
 import matthewImg from "../Images/MattBarrowFillerABTUS.jpeg";
 

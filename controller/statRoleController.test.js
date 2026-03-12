@@ -30,15 +30,10 @@ function loadControllerWithMocks() {
   const controllerPath = path.resolve(__dirname, "./statRoleController.js");
   const source = fs.readFileSync(controllerPath, "utf8");
 
-  // IMPORTANT:
-  // Your controller references `dao` but does not import it.
-  // We inject `const dao = globalThis.__daoMock;` so the identifier exists.
   const injectedPrelude = `const dao = globalThis.__daoMock;\n`;
 
-  // Put the prelude before the controller source, inside the module wrapper function.
   const wrapped = `(function (exports, require, module, __filename, __dirname) { ${injectedPrelude}${source}\n})`;
 
-  // Provide dao as a global for that VM execution
   globalThis.__daoMock = dao;
 
   const fn = vm.runInThisContext(wrapped, { filename: controllerPath });
@@ -47,12 +42,8 @@ function loadControllerWithMocks() {
   const localRequire = (request) => {
     if (request === "mongoose") return mongooseMock;
 
-    // controller does: require("../model/playerDao");
-    // we stub it so it doesn't need a real schema registration
     if (request === "../model/playerDao" || request === "../model/playerDao.js") return {};
 
-    // If you later add: const dao = require("../model/statRoleDao.js");
-    // this keeps the test working too.
     if (
       request === "../model/statRoleDao" ||
       request === "../model/statRoleDao.js" ||

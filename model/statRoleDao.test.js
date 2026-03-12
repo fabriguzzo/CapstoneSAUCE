@@ -155,8 +155,6 @@ describe("statRoleDao.js", () => {
   });
 
   test("schema index is defined (unique teamId+playerId)", () => {
-    // At module load, schema.index(...) should have been called
-    // (we don't assert exact args too strictly, but you can if you want)
     expect(schemaIndexSpy).toHaveBeenCalled();
   });
 });
