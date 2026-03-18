@@ -14,6 +14,7 @@ const dao = {
     "final",
     "tournament",
   ],
+  GAME_STATUS: ["scheduled", "live", "final"],
   create: vi.fn(),
   readAll: vi.fn(),
   read: vi.fn(),
@@ -106,6 +107,7 @@ describe("gameController Module", () => {
       expect(typeof controller.updateGameInfo).toBe("function");
       expect(typeof controller.deleteOne).toBe("function");
       expect(typeof controller.deleteAll).toBe("function");
+      expect(typeof controller.updateLiveState).toBe("function");
     });
   });
 
@@ -238,7 +240,7 @@ describe("gameController Module", () => {
 
       expect(dao.update).toHaveBeenCalledWith("g1", {
         score: { us: 2, them: 1 },
-        status: "in-progress",
+        status: "live",
       });
       expect(res.status).toHaveBeenCalledWith(200);
     });
@@ -264,7 +266,7 @@ describe("gameController Module", () => {
       await controller.finishGame(req, res);
 
       const [, update] = dao.update.mock.calls[0];
-      expect(update.status).toBe("finished");
+      expect(update.status).toBe("final");
       expect(update.result).toBe("Win");
 
       expect(res.status).toHaveBeenCalledWith(200);
@@ -362,4 +364,463 @@ describe("gameController Module", () => {
       expect(res.json).toHaveBeenCalledWith({ message: "Games deleted successfully" });
     });
   });
+
+  describe("additional coverage", () => {
+  test("exports updateLiveState", () => {
+    expect(typeof controller.updateLiveState).toBe("function");
+  });
+
+  describe("create extra branches", () => {
+    test("400: invalid game date", async () => {
+      const req = { body: makeValidCreateBody({ gameDate: "not-a-date" }) };
+      const res = makeRes();
+
+      await controller.create(req, res);
+
+      expect(dao.create).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: "Invalid game date" });
+    });
+
+    test("400: invalid lineup wrong length", async () => {
+      const req = {
+        body: makeValidCreateBody({ lineup: makeLineup15().slice(0, 14) }),
+      };
+      const res = makeRes();
+
+      await controller.create(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        error: "Lineup must have exactly 15 players with unique slots 1-15",
+      });
+    });
+
+    test("400: invalid lineup duplicate slot", async () => {
+      const lineup = makeLineup15();
+      lineup[1].slot = 1;
+
+      const req = { body: makeValidCreateBody({ lineup }) };
+      const res = makeRes();
+
+      await controller.create(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        error: "Lineup must have exactly 15 players with unique slots 1-15",
+      });
+    });
+
+    test("400: invalid lineup slot out of range", async () => {
+      const lineup = makeLineup15();
+      lineup[0].slot = 0;
+
+      const req = { body: makeValidCreateBody({ lineup }) };
+      const res = makeRes();
+
+      await controller.create(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        error: "Lineup must have exactly 15 players with unique slots 1-15",
+      });
+    });
+
+    test("400: invalid lineup missing playerId", async () => {
+      const lineup = makeLineup15();
+      lineup[0] = { slot: 1 };
+
+      const req = { body: makeValidCreateBody({ lineup }) };
+      const res = makeRes();
+
+      await controller.create(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        error: "Lineup must have exactly 15 players with unique slots 1-15",
+      });
+    });
+
+    test("400: opponent team name required", async () => {
+      const req = { body: makeValidCreateBody({ opponentTeamName: "   " }) };
+      const res = makeRes();
+
+      await controller.create(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: "Opponent team name is required" });
+    });
+
+    test("400: invalid opponent roster bad player", async () => {
+      const roster = makeOppRoster15();
+      roster[0] = { number: "abc", name: "" };
+
+      const req = { body: makeValidCreateBody({ opponentRoster: roster }) };
+      const res = makeRes();
+
+      await controller.create(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        error: "Opponent roster must have exactly 15 players (number + name)",
+      });
+    });
+
+    test("500: dao.create throws", async () => {
+      const req = { body: makeValidCreateBody() };
+      const res = makeRes();
+      dao.create.mockRejectedValue(new Error("create fail"));
+
+      await controller.create(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: "Failed to create game" });
+    });
+
+    test("201: trims opponent team name and roster names", async () => {
+      const req = {
+        body: makeValidCreateBody({
+          opponentTeamName: " Towson ",
+          opponentRoster: makeOppRoster15().map((p, i) => ({
+            number: ` ${30 + i} `,
+            name: ` ${p.name} `,
+          })),
+        }),
+      };
+      const res = makeRes();
+      dao.create.mockResolvedValue({ _id: "g2" });
+
+      await controller.create(req, res);
+
+      const [gameData] = dao.create.mock.calls[0];
+      expect(gameData.opponent.teamName).toBe("Towson");
+      expect(gameData.opponent.roster[0].number).toBe(30);
+      expect(gameData.opponent.roster[0].name).toBe("Fabrizio2");
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+  });
+
+  describe("getAll extra branches", () => {
+    test("200: returns all games with empty filter", async () => {
+      const req = { query: {} };
+      const res = makeRes();
+      dao.readAll.mockResolvedValue([]);
+
+      await controller.getAll(req, res);
+
+      expect(dao.readAll).toHaveBeenCalledWith({});
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith([]);
+    });
+
+    test("500: dao.readAll throws", async () => {
+      const req = { query: {} };
+      const res = makeRes();
+      dao.readAll.mockRejectedValue(new Error("readAll fail"));
+
+      await controller.getAll(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: "Failed to retrieve games" });
+    });
+  });
+
+  describe("getOne extra branches", () => {
+    test("500: dao.read throws", async () => {
+      const req = { params: { id: "g1" } };
+      const res = makeRes();
+      dao.read.mockRejectedValue(new Error("read fail"));
+
+      await controller.getOne(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: "Failed to retrieve game" });
+    });
+  });
+
+  describe("updateScore extra branches", () => {
+    test("404: game not found", async () => {
+      const req = { params: { id: "missing" }, body: { us: 1, them: 0 } };
+      const res = makeRes();
+      dao.update.mockResolvedValue(null);
+
+      await controller.updateScore(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json).toHaveBeenCalledWith({ error: "Game not found" });
+    });
+
+    test("500: dao.update throws", async () => {
+      const req = { params: { id: "g1" }, body: { us: 1, them: 0 } };
+      const res = makeRes();
+      dao.update.mockRejectedValue(new Error("update fail"));
+
+      await controller.updateScore(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: "Failed to update score" });
+    });
+  });
+
+  describe("finishGame extra branches", () => {
+    test("400: invalid score values", async () => {
+      const req = { params: { id: "g1" }, body: { us: -1, them: 0 } };
+      const res = makeRes();
+
+      await controller.finishGame(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: "Invalid score values" });
+    });
+
+    test("200: sets Loss result", async () => {
+      const req = { params: { id: "g1" }, body: { us: 1, them: 3 } };
+      const res = makeRes();
+      dao.update.mockResolvedValue({ _id: "g1", result: "Loss" });
+
+      await controller.finishGame(req, res);
+
+      const [, update] = dao.update.mock.calls[0];
+      expect(update.result).toBe("Loss");
+      expect(update.currentPeriod).toBe(3);
+      expect(update.clockSecondsRemaining).toBe(0);
+      expect(update.status).toBe("final");
+      expect(update.dateFinished).toBeInstanceOf(Date);
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    test("200: uses provided currentPeriod", async () => {
+      const req = { params: { id: "g1" }, body: { us: 3, them: 1, currentPeriod: "5" } };
+      const res = makeRes();
+      dao.update.mockResolvedValue({ _id: "g1", result: "Win" });
+
+      await controller.finishGame(req, res);
+
+      const [, update] = dao.update.mock.calls[0];
+      expect(update.currentPeriod).toBe(5);
+    });
+
+    test("404: game not found", async () => {
+      const req = { params: { id: "missing" }, body: { us: 2, them: 1 } };
+      const res = makeRes();
+      dao.update.mockResolvedValue(null);
+
+      await controller.finishGame(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json).toHaveBeenCalledWith({ error: "Game not found" });
+    });
+
+    test("500: dao.update throws", async () => {
+      const req = { params: { id: "g1" }, body: { us: 2, them: 1 } };
+      const res = makeRes();
+      dao.update.mockRejectedValue(new Error("finish fail"));
+
+      await controller.finishGame(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: "Failed to finish game" });
+    });
+  });
+
+  describe("updateGameInfo extra branches", () => {
+    test("400: invalid game type", async () => {
+      const req = { params: { id: "g1" }, body: { gameType: "bad" } };
+      const res = makeRes();
+
+      await controller.updateGameInfo(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: "Invalid game type" });
+    });
+
+    test("400: invalid game date", async () => {
+      const req = { params: { id: "g1" }, body: { gameDate: "bad-date" } };
+      const res = makeRes();
+
+      await controller.updateGameInfo(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: "Invalid game date" });
+    });
+
+    test("400: invalid lineup", async () => {
+      const lineup = makeLineup15();
+      lineup[3].slot = 1;
+
+      const req = { params: { id: "g1" }, body: { lineup } };
+      const res = makeRes();
+
+      await controller.updateGameInfo(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        error: "Lineup must have exactly 15 players with unique slots 1-15",
+      });
+    });
+
+    test("400: invalid opponent roster", async () => {
+      const req = {
+        params: { id: "g1" },
+        body: { opponentRoster: makeOppRoster15().slice(0, 10) },
+      };
+      const res = makeRes();
+
+      await controller.updateGameInfo(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        error: "Opponent roster must have exactly 15 players (number + name)",
+      });
+    });
+
+    test("200: updates lineup only", async () => {
+      const req = { params: { id: "g1" }, body: { lineup: makeLineup15() } };
+      const res = makeRes();
+      dao.update.mockResolvedValue({ _id: "g1" });
+
+      await controller.updateGameInfo(req, res);
+
+      expect(dao.update).toHaveBeenCalledWith("g1", { lineup: makeLineup15() });
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    test("404: game not found", async () => {
+      const req = { params: { id: "missing" }, body: { gameType: "league" } };
+      const res = makeRes();
+      dao.update.mockResolvedValue(null);
+
+      await controller.updateGameInfo(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json).toHaveBeenCalledWith({ error: "Game not found" });
+    });
+
+    test("500: dao.update throws", async () => {
+      const req = { params: { id: "g1" }, body: { gameType: "league" } };
+      const res = makeRes();
+      dao.update.mockRejectedValue(new Error("update info fail"));
+
+      await controller.updateGameInfo(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: "Failed to update game info" });
+    });
+  });
+
+  describe("deleteOne extra branches", () => {
+    test("500: dao.del throws", async () => {
+      const req = { params: { id: "g1" } };
+      const res = makeRes();
+      dao.del.mockRejectedValue(new Error("del fail"));
+
+      await controller.deleteOne(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: "Failed to delete game" });
+    });
+  });
+
+  describe("deleteAll extra branches", () => {
+    test("200: deletes all with empty filter", async () => {
+      const req = { query: {} };
+      const res = makeRes();
+      dao.deleteAll.mockResolvedValue(undefined);
+
+      await controller.deleteAll(req, res);
+
+      expect(dao.deleteAll).toHaveBeenCalledWith({});
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ message: "Games deleted successfully" });
+    });
+
+    test("500: dao.deleteAll throws", async () => {
+      const req = { query: {} };
+      const res = makeRes();
+      dao.deleteAll.mockRejectedValue(new Error("deleteAll fail"));
+
+      await controller.deleteAll(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: "Failed to delete games" });
+    });
+  });
+
+  describe("updateLiveState", () => {
+    test("200: updates status/currentPeriod/clockSecondsRemaining", async () => {
+      const req = {
+        params: { id: "g1" },
+        body: { status: " LIVE ", currentPeriod: "2", clockSecondsRemaining: "45" },
+      };
+      const res = makeRes();
+      dao.update.mockResolvedValue({ _id: "g1", status: "live" });
+
+      await controller.updateLiveState(req, res);
+
+      expect(dao.update).toHaveBeenCalledWith("g1", {
+        status: "live",
+        currentPeriod: 2,
+        clockSecondsRemaining: 45,
+      });
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ _id: "g1", status: "live" });
+    });
+
+    test("400: invalid game status", async () => {
+      const req = { params: { id: "g1" }, body: { status: "bad-status" } };
+      const res = makeRes();
+
+      await controller.updateLiveState(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: "Invalid game status" });
+    });
+
+    test("400: invalid currentPeriod", async () => {
+      const req = { params: { id: "g1" }, body: { currentPeriod: 0 } };
+      const res = makeRes();
+
+      await controller.updateLiveState(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        error: "currentPeriod must be a positive integer",
+      });
+    });
+
+    test("400: invalid clockSecondsRemaining", async () => {
+      const req = { params: { id: "g1" }, body: { clockSecondsRemaining: -1 } };
+      const res = makeRes();
+
+      await controller.updateLiveState(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        error: "clockSecondsRemaining must be a non-negative integer",
+      });
+    });
+
+    test("404: game not found", async () => {
+      const req = { params: { id: "missing" }, body: { status: "live" } };
+      const res = makeRes();
+      dao.update.mockResolvedValue(null);
+
+      await controller.updateLiveState(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json).toHaveBeenCalledWith({ error: "Game not found" });
+    });
+
+    test("500: dao.update throws", async () => {
+      const req = { params: { id: "g1" }, body: { status: "live" } };
+      const res = makeRes();
+      dao.update.mockRejectedValue(new Error("live state fail"));
+
+      await controller.updateLiveState(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: "Failed to update live state" });
+    });
+  });
+});
 });
