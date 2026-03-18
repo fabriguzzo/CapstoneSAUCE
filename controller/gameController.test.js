@@ -238,7 +238,7 @@ describe("gameController Module", () => {
 
       expect(dao.update).toHaveBeenCalledWith("g1", {
         score: { us: 2, them: 1 },
-        status: "in-progress",
+        status: "live",
       });
       expect(res.status).toHaveBeenCalledWith(200);
     });
@@ -264,7 +264,7 @@ describe("gameController Module", () => {
       await controller.finishGame(req, res);
 
       const [, update] = dao.update.mock.calls[0];
-      expect(update.status).toBe("finished");
+      expect(update.status).toBe("final");
       expect(update.result).toBe("Win");
 
       expect(res.status).toHaveBeenCalledWith(200);

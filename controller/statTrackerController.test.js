@@ -221,13 +221,17 @@ describe("statTrackerController Module", () => {
       const req = { query: { gameId: "g1", teamId: "t1", playerId: "p1" } };
       const res = makeRes();
 
-      dao.readAll.mockResolvedValue([{ _id: "s1" }]);
+      dao.getGameHistory.mockResolvedValue([
+        { playerId: { toString: () => "p1" }, gameId: "g1", teamId: "t1", goals: 1, assists: 0, shots: 0, hits: 0, pim: 0, plusMinus: 0, saves: 0, goalsAgainst: 0, timestamp: new Date().toISOString() },
+      ]);
 
       await controller.getAll(req, res);
 
-      expect(dao.readAll).toHaveBeenCalledWith({ gameId: "g1", teamId: "t1", playerId: "p1" });
+      expect(dao.getGameHistory).toHaveBeenCalledWith("g1");
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith([{ _id: "s1" }]);
+      expect(res.json).toHaveBeenCalledWith([
+        expect.objectContaining({ gameId: "g1", teamId: "t1", goals: 1 }),
+      ]);
     });
 
     test("500: readAll throws", async () => {

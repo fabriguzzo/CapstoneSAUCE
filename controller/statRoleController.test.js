@@ -30,11 +30,7 @@ function loadControllerWithMocks() {
   const controllerPath = path.resolve(__dirname, "./statRoleController.js");
   const source = fs.readFileSync(controllerPath, "utf8");
 
-  const injectedPrelude = `const dao = globalThis.__daoMock;\n`;
-
-  const wrapped = `(function (exports, require, module, __filename, __dirname) { ${injectedPrelude}${source}\n})`;
-
-  globalThis.__daoMock = dao;
+  const wrapped = `(function (exports, require, module, __filename, __dirname) { ${source}\n})`;
 
   const fn = vm.runInThisContext(wrapped, { filename: controllerPath });
   const module = { exports: {} };
