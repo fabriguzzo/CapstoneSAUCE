@@ -5,7 +5,12 @@ const StatHistorySchema = new mongoose.Schema(
     gameId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
     teamId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
     playerId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+
     timestamp: { type: Date, default: Date.now, index: true },
+
+    period: { type: Number, default: 1, min: 1 },
+    clockSecondsRemaining: { type: Number, default: 1200, min: 0 },
+    gameSecondsElapsed: { type: Number, default: 0, min: 0 },
 
     goals: { type: Number, default: 0, min: 0 },
     assists: { type: Number, default: 0, min: 0 },
@@ -20,6 +25,7 @@ const StatHistorySchema = new mongoose.Schema(
 );
 
 StatHistorySchema.index({ gameId: 1, playerId: 1, timestamp: 1 });
+StatHistorySchema.index({ gameId: 1, gameSecondsElapsed: 1 });
 
 const StatHistory = mongoose.model('StatHistory', StatHistorySchema);
 
@@ -29,41 +35,48 @@ const StatLineSchema = new mongoose.Schema(
     teamId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
     playerId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
 
-    // Common hockey stats (edit to your needs)
     goals: { type: Number, default: 0, min: 0 },
     assists: { type: Number, default: 0, min: 0 },
     shots: { type: Number, default: 0, min: 0 },
     hits: { type: Number, default: 0, min: 0 },
-    pim: { type: Number, default: 0, min: 0 }, // penalty minutes
-    plusMinus: { type: Number, default: 0 },   // can be negative
-
-    // Optional for goalie lines 
-    //saves: { type: Number, default: 0, min: 0 },
-    //goalsAgainst: { type: Number, default: 0, min: 0 }
+    pim: { type: Number, default: 0, min: 0 },
+    plusMinus: { type: Number, default: 0 },
+    saves: { type: Number, default: 0, min: 0 },
+    goalsAgainst: { type: Number, default: 0, min: 0 }
   },
   { timestamps: true }
 );
 
-// Prevent duplicates: one stat line per player per game
 StatLineSchema.index({ gameId: 1, playerId: 1 }, { unique: true });
 
 const StatLine = mongoose.model('StatLine', StatLineSchema);
 
+const buildHistoryDoc = (statData) => ({
+  gameId: statData.gameId,
+  teamId: statData.teamId,
+  playerId: statData.playerId,
+  timestamp: statData.timestamp ? new Date(statData.timestamp) : new Date(),
+
+  period: Number.isFinite(Number(statData.period)) ? Number(statData.period) : 1,
+  clockSecondsRemaining: Number.isFinite(Number(statData.clockSecondsRemaining))
+    ? Number(statData.clockSecondsRemaining)
+    : 1200,
+  gameSecondsElapsed: Number.isFinite(Number(statData.gameSecondsElapsed))
+    ? Number(statData.gameSecondsElapsed)
+    : 0,
+
+  goals: statData.goals || 0,
+  assists: statData.assists || 0,
+  shots: statData.shots || 0,
+  hits: statData.hits || 0,
+  pim: statData.pim || 0,
+  plusMinus: statData.plusMinus || 0,
+  saves: statData.saves || 0,
+  goalsAgainst: statData.goalsAgainst || 0
+});
+
 const saveHistory = async (statData) => {
-  const historyEntry = new StatHistory({
-    gameId: statData.gameId,
-    teamId: statData.teamId,
-    playerId: statData.playerId,
-    timestamp: new Date(),
-    goals: statData.goals || 0,
-    assists: statData.assists || 0,
-    shots: statData.shots || 0,
-    hits: statData.hits || 0,
-    pim: statData.pim || 0,
-    plusMinus: statData.plusMinus || 0,
-    saves: statData.saves || 0,
-    goalsAgainst: statData.goalsAgainst || 0
-  });
+  const historyEntry = new StatHistory(buildHistoryDoc(statData));
   await historyEntry.save();
 };
 
@@ -98,7 +111,6 @@ exports.deleteAll = async (filter = {}) => {
   return await StatLine.deleteMany(filter);
 };
 
-// Bulk upsert: save 15 players in one call
 exports.bulkUpsert = async (lines) => {
   const ops = lines.map((line) => ({
     updateOne: {
@@ -112,20 +124,7 @@ exports.bulkUpsert = async (lines) => {
 
   const historyOps = lines.map((line) => ({
     insertOne: {
-      document: {
-        gameId: line.gameId,
-        teamId: line.teamId,
-        playerId: line.playerId,
-        timestamp: new Date(),
-        goals: line.goals || 0,
-        assists: line.assists || 0,
-        shots: line.shots || 0,
-        hits: line.hits || 0,
-        pim: line.pim || 0,
-        plusMinus: line.plusMinus || 0,
-        saves: line.saves || 0,
-        goalsAgainst: line.goalsAgainst || 0
-      }
+      document: buildHistoryDoc(line)
     }
   }));
 
@@ -136,7 +135,6 @@ exports.bulkUpsert = async (lines) => {
   return result;
 };
 
-// Export model if you ever need it elsewhere
 exports.StatLine = StatLine;
 exports.StatHistory = StatHistory;
 
@@ -149,7 +147,9 @@ exports.getHistory = async (filter = {}) => {
       mongooseFilter[key] = value;
     }
   }
-  return await StatHistory.find(mongooseFilter).sort({ timestamp: 1 }).lean();
+  return await StatHistory.find(mongooseFilter)
+    .sort({ gameSecondsElapsed: 1, timestamp: 1 })
+    .lean();
 };
 
 exports.getPlayerHistory = async (gameId, playerId) => {
@@ -160,7 +160,9 @@ exports.getPlayerHistory = async (gameId, playerId) => {
   if (playerId && mongoose.Types.ObjectId.isValid(playerId)) {
     query.playerId = new mongoose.Types.ObjectId(playerId);
   }
-  return await StatHistory.find(query).sort({ timestamp: 1 }).lean();
+  return await StatHistory.find(query)
+    .sort({ gameSecondsElapsed: 1, timestamp: 1 })
+    .lean();
 };
 
 exports.getGameHistory = async (gameId) => {
@@ -168,5 +170,7 @@ exports.getGameHistory = async (gameId) => {
   if (gameId && mongoose.Types.ObjectId.isValid(gameId)) {
     query.gameId = new mongoose.Types.ObjectId(gameId);
   }
-  return await StatHistory.find(query).sort({ timestamp: 1 }).lean();
+  return await StatHistory.find(query)
+    .sort({ gameSecondsElapsed: 1, timestamp: 1 })
+    .lean();
 };

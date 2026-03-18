@@ -226,6 +226,13 @@ exports.bulkSave = async function (req, res) {
         plusMinus: Number(l.plusMinus) || 0,
         saves: toIntOrZero(l.saves),
         goalsAgainst: toIntOrZero(l.goalsAgainst),
+        period: Number(historyMeta.period) || 1,
+        clockSecondsRemaining: Number.isFinite(Number(historyMeta.clockSecondsRemaining))
+          ? Number(historyMeta.clockSecondsRemaining)
+          : 1200,
+        gameSecondsElapsed: Number.isFinite(Number(historyMeta.gameSecondsElapsed))
+          ? Number(historyMeta.gameSecondsElapsed)
+          : 0,
       });
     }
 

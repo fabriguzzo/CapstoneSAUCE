@@ -1,5 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
-import { useAuthFetch } from "../hooks/useAuthFetch";
+import { useEffect, useMemo, useState } from "react";
 import {
   Box,
   Container,
@@ -22,10 +21,12 @@ import {
   YAxis,
   ResponsiveContainer,
   Legend,
+  Tooltip,
 } from "recharts";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
+const PERIOD_LENGTH_SECONDS = 20 * 60;
 
 interface Player {
   _id: string;
@@ -39,6 +40,9 @@ interface Game {
   gameDate: string;
   gameType: string;
   opponent?: { teamName?: string };
+  status?: "scheduled" | "live" | "intermission" | "final";
+  currentPeriod?: number;
+  clockSecondsRemaining?: number;
 }
 
 interface StatHistoryEntry {
@@ -47,6 +51,9 @@ interface StatHistoryEntry {
   teamId: string;
   playerId: string;
   timestamp: string;
+  period?: number;
+  clockSecondsRemaining?: number;
+  gameSecondsElapsed?: number;
   goals: number;
   assists: number;
   shots: number;
@@ -66,7 +73,7 @@ const STAT_FIELDS = [
   { key: "plusMinus", label: "+/-", color: "#3b82f6" },
   { key: "saves", label: "Saves", color: "#10b981" },
   { key: "goalsAgainst", label: "Goals Against", color: "#f43f5e" },
-];
+] as const;
 
 const CREAM = "#fff2d1";
 const GREEN = "#005F02";
@@ -90,26 +97,41 @@ const greenMenuProps = {
     sx: {
       zIndex: 3000,
       "& .MuiMenuItem-root": { color: GREEN, fontWeight: 700 },
-      "& .MuiMenuItem-root.Mui-selected": { backgroundColor: "rgba(0,95,2,0.10)" },
+      "& .MuiMenuItem-root.Mui-selected": {
+        backgroundColor: "rgba(0,95,2,0.10)",
+      },
     },
   },
   sx: { zIndex: 3000 },
 };
 
-function formatTime(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+function formatClockRemaining(secondsRemaining = 0): string {
+  const safe = Math.max(0, secondsRemaining);
+  const minutes = Math.floor(safe / 60);
+  const seconds = safe % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function parseTimeToMinutes(timeStr: string): number {
-  const [hours, minutes] = timeStr.split(":").map(Number);
-  return hours * 60 + minutes;
+function formatPeriodClock(period = 1, clockSecondsRemaining = 1200): string {
+  return `P${period} ${formatClockRemaining(clockSecondsRemaining)}`;
+}
+
+function uniqueTimeOptions(history: StatHistoryEntry[]) {
+  const seen = new Set<string>();
+  return history.filter((entry) => {
+    const key = `${entry.period ?? 1}-${entry.clockSecondsRemaining ?? 1200}-${entry.gameSecondsElapsed ?? 0}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export default function GameStats() {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
-  const authFetch = useAuthFetch();
+  const location = useLocation();
+
+  const isLiveMode = location.pathname.includes("/live");
 
   const [game, setGame] = useState<Game | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -119,30 +141,20 @@ export default function GameStats() {
   const [viewMode, setViewMode] = useState<"total" | "cumulative" | "players">("cumulative");
   const [selectedPlayers, setSelectedPlayers] = useState<string[]>([]);
   const [selectedStats, setSelectedStats] = useState<string[]>(["goals", "assists", "shots", "hits"]);
-  const [timeRangeStart, setTimeRangeStart] = useState("");
-  const [timeRangeEnd, setTimeRangeEnd] = useState("");
-
-  useEffect(() => {
-    if (gameId) {
-      fetchData();
-    }
-  }, [gameId]);
+  const [timeRangeStart, setTimeRangeStart] = useState<number | "">("");
+  const [timeRangeEnd, setTimeRangeEnd] = useState<number | "">("");
 
   async function fetchData() {
     try {
-      setIsLoading(true);
-      
-      const gameRes = await authFetch(`${API_BASE_URL}/api/games/${gameId}`);
+      const gameRes = await fetch(`${API_BASE_URL}/api/games/${gameId}`);
       const gameData = await gameRes.json();
       setGame(gameData);
 
-      const teamId = gameData.teamId;
-      
-      const playersRes = await fetch(`${API_BASE_URL}/api/players?teamId=${teamId}`);
+      const playersRes = await fetch(`${API_BASE_URL}/api/players?teamId=${gameData.teamId}`);
       const playersData = await playersRes.json();
       setPlayers(Array.isArray(playersData) ? playersData : []);
 
-      const historyRes = await authFetch(`${API_BASE_URL}/api/stats/history/game/${gameId}`);
+      const historyRes = await fetch(`${API_BASE_URL}/api/stats/history/game/${gameId}`);
       const historyData = await historyRes.json();
       setStatHistory(Array.isArray(historyData) ? historyData : []);
     } catch (err) {
@@ -152,29 +164,38 @@ export default function GameStats() {
     }
   }
 
+  useEffect(() => {
+    if (!gameId) return;
+    setIsLoading(true);
+    fetchData();
+  }, [gameId]);
+
+  useEffect(() => {
+    if (!gameId || !isLiveMode) return;
+    const interval = setInterval(() => {
+      fetchData();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [gameId, isLiveMode]);
+
   const sortedHistory = useMemo(() => {
-    return [...statHistory].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    return [...statHistory].sort((a, b) => {
+      const aTime = a.gameSecondsElapsed ?? 0;
+      const bTime = b.gameSecondsElapsed ?? 0;
+      if (aTime !== bTime) return aTime - bTime;
+      return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+    });
   }, [statHistory]);
 
   const filteredHistory = useMemo(() => {
-    if (sortedHistory.length === 0) return [];
-
     let filtered = sortedHistory;
 
-    if (timeRangeStart) {
-      const startMinutes = parseTimeToMinutes(timeRangeStart);
-      filtered = filtered.filter(entry => {
-        const entryMinutes = parseTimeToMinutes(formatTime(entry.timestamp));
-        return entryMinutes >= startMinutes;
-      });
+    if (timeRangeStart !== "") {
+      filtered = filtered.filter((entry) => (entry.gameSecondsElapsed ?? 0) >= timeRangeStart);
     }
 
-    if (timeRangeEnd) {
-      const endMinutes = parseTimeToMinutes(timeRangeEnd);
-      filtered = filtered.filter(entry => {
-        const entryMinutes = parseTimeToMinutes(formatTime(entry.timestamp));
-        return entryMinutes <= endMinutes;
-      });
+    if (timeRangeEnd !== "") {
+      filtered = filtered.filter((entry) => (entry.gameSecondsElapsed ?? 0) <= timeRangeEnd);
     }
 
     return filtered;
@@ -183,49 +204,18 @@ export default function GameStats() {
   const chartData = useMemo(() => {
     if (filteredHistory.length === 0) return [];
 
-    if (viewMode === "cumulative") {
-      const cumulativeData: Array<Record<string, number | string>> = [];
-      const cumulativeTotals: Record<string, number> = {};
-      
-      STAT_FIELDS.forEach(stat => {
-        cumulativeTotals[stat.key] = 0;
-      });
+    if (viewMode === "players") {
+      const playerDataByTime: Record<string, Record<string, string | number>> = {};
 
       filteredHistory.forEach((entry) => {
-        STAT_FIELDS.forEach((stat) => {
-          cumulativeTotals[stat.key] += Number(entry[stat.key as keyof StatHistoryEntry]) || 0;
-        });
+        const gameSecondsElapsed = entry.gameSecondsElapsed ?? 0;
+        const timeKey = String(gameSecondsElapsed);
 
-        const dataPoint: Record<string, number | string> = {
-          time: formatTime(entry.timestamp),
-        };
-        STAT_FIELDS.forEach((stat) => {
-          dataPoint[stat.key] = cumulativeTotals[stat.key];
-        });
-        cumulativeData.push(dataPoint);
-      });
-
-      return cumulativeData;
-    } else if (viewMode === "total") {
-      const totals: Record<string, number> = {};
-      STAT_FIELDS.forEach(stat => {
-        totals[stat.key] = 0;
-      });
-
-      filteredHistory.forEach((entry) => {
-        STAT_FIELDS.forEach((stat) => {
-          totals[stat.key] += Number(entry[stat.key as keyof StatHistoryEntry]) || 0;
-        });
-      });
-
-      return [{ time: "Total", ...totals }];
-    } else {
-      const playerDataByTime: Record<string, Record<string, number | string>> = {};
-
-      filteredHistory.forEach((entry) => {
-        const timeKey = formatTime(entry.timestamp);
         if (!playerDataByTime[timeKey]) {
-          playerDataByTime[timeKey] = { time: timeKey };
+          playerDataByTime[timeKey] = {
+            gameSecondsElapsed,
+            label: formatPeriodClock(entry.period ?? 1, entry.clockSecondsRemaining ?? 1200),
+          };
         }
 
         if (selectedPlayers.includes(entry.playerId)) {
@@ -234,13 +224,57 @@ export default function GameStats() {
 
           STAT_FIELDS.forEach((stat) => {
             const key = `${playerName}_${stat.key}`;
-            playerDataByTime[timeKey][key] = entry[stat.key as keyof StatHistoryEntry] as number || 0;
+            playerDataByTime[timeKey][key] =
+              Number(entry[stat.key as keyof StatHistoryEntry]) || 0;
           });
         }
       });
 
-      return Object.values(playerDataByTime);
+      return Object.values(playerDataByTime).sort(
+        (a, b) => Number(a.gameSecondsElapsed) - Number(b.gameSecondsElapsed)
+      );
     }
+
+    const snapshotsByPlayer: Record<string, Record<string, number>> = {};
+    const series: Array<Record<string, string | number>> = [];
+
+    filteredHistory.forEach((entry) => {
+      const playerId = String(entry.playerId);
+
+      snapshotsByPlayer[playerId] = {
+        goals: entry.goals ?? 0,
+        assists: entry.assists ?? 0,
+        shots: entry.shots ?? 0,
+        hits: entry.hits ?? 0,
+        pim: entry.pim ?? 0,
+        plusMinus: entry.plusMinus ?? 0,
+        saves: entry.saves ?? 0,
+        goalsAgainst: entry.goalsAgainst ?? 0,
+      };
+
+      const totals: Record<string, number> = {};
+      STAT_FIELDS.forEach((stat) => {
+        totals[stat.key] = 0;
+      });
+
+      Object.values(snapshotsByPlayer).forEach((playerSnapshot) => {
+        STAT_FIELDS.forEach((stat) => {
+          totals[stat.key] += playerSnapshot[stat.key] || 0;
+        });
+      });
+
+      series.push({
+        gameSecondsElapsed: entry.gameSecondsElapsed ?? 0,
+        label: formatPeriodClock(entry.period ?? 1, entry.clockSecondsRemaining ?? 1200),
+        ...totals,
+      });
+    });
+
+    if (viewMode === "total") {
+      return series.length > 0 ? [series[series.length - 1]] : [];
+    }
+
+    return series;
   }, [filteredHistory, viewMode, selectedPlayers, players]);
 
   const handlePlayerToggle = (playerId: string) => {
@@ -259,9 +293,19 @@ export default function GameStats() {
     );
   };
 
+  const timeOptions = useMemo(() => uniqueTimeOptions(sortedHistory), [sortedHistory]);
+
   if (isLoading) {
     return (
-      <Box sx={{ minHeight: "100vh", bgcolor: CREAM, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <Box
+        sx={{
+          minHeight: "100vh",
+          bgcolor: CREAM,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
         <CircularProgress sx={{ color: GREEN }} />
       </Box>
     );
@@ -292,18 +336,57 @@ export default function GameStats() {
         >
           {game ? new Date(game.gameDate).toLocaleDateString() : "Game Stats"}
         </Typography>
+
         {game && (
           <Typography
             sx={{
               textAlign: "center",
               fontWeight: 600,
               fontSize: { xs: 16, md: 20 },
-              mb: 4,
+              mb: 3,
               color: GREEN,
             }}
           >
             {game.gameType} vs {game.opponent?.teamName || "Opponent"}
           </Typography>
+        )}
+
+        {isLiveMode && game && (
+          <Paper
+            elevation={6}
+            sx={{
+              borderRadius: 4,
+              p: 3,
+              mb: 3,
+              textAlign: "center",
+              bgcolor: GREEN,
+              color: CREAM,
+              boxShadow: "0 10px 30px rgba(0,0,0,.12)",
+            }}
+          >
+            <Typography sx={{ fontWeight: 1000, fontSize: { xs: 22, md: 30 } }}>
+              {game.status === "live"
+                ? "LIVE"
+                : game.status === "intermission"
+                ? "INTERMISSION"
+                : game.status?.toUpperCase() || "LIVE VIEW"}
+            </Typography>
+
+            <Typography sx={{ fontWeight: 800, mt: 1, fontSize: { xs: 18, md: 24 } }}>
+              Period {game.currentPeriod ?? "-"}
+            </Typography>
+
+            <Typography
+              sx={{
+                fontWeight: 1000,
+                mt: 1,
+                fontSize: { xs: 38, md: 60 },
+                lineHeight: 1,
+              }}
+            >
+              {formatClockRemaining(game.clockSecondsRemaining ?? 0)}
+            </Typography>
+          </Paper>
         )}
 
         <Paper
@@ -327,42 +410,48 @@ export default function GameStats() {
                 sx={greenFieldSx}
                 MenuProps={greenMenuProps}
               >
-                <MenuItem value="cumulative" sx={{ color: GREEN, fontWeight: 700 }}>Cumulative (Running Total)</MenuItem>
-                <MenuItem value="total" sx={{ color: GREEN, fontWeight: 700 }}>Total (Sum)</MenuItem>
-                <MenuItem value="players" sx={{ color: GREEN, fontWeight: 700 }}>Individual Players</MenuItem>
+                <MenuItem value="cumulative">Cumulative (Running Snapshot)</MenuItem>
+                <MenuItem value="total">Final Total</MenuItem>
+                <MenuItem value="players">Individual Players</MenuItem>
               </Select>
             </FormControl>
 
-            <FormControl fullWidth sx={{ minWidth: 140 }}>
+            <FormControl fullWidth sx={{ minWidth: 160 }}>
               <InputLabel sx={{ color: GREEN, fontWeight: 700 }}>Start Time</InputLabel>
               <Select
-                value={timeRangeStart}
+                value={timeRangeStart === "" ? "" : String(timeRangeStart)}
                 label="Start Time"
-                onChange={(e) => setTimeRangeStart(e.target.value)}
+                onChange={(e) =>
+                  setTimeRangeStart(e.target.value === "" ? "" : Number(e.target.value))
+                }
                 sx={greenFieldSx}
                 MenuProps={greenMenuProps}
-                displayEmpty
               >
-                <MenuItem value="" sx={{ color: GREEN, fontWeight: 700 }}>Start of game</MenuItem>
-                {sortedHistory.length > 0 && [...new Set(sortedHistory.map(h => formatTime(h.timestamp)))].map((time) => (
-                  <MenuItem key={time} value={time} sx={{ color: GREEN, fontWeight: 700 }}>{time}</MenuItem>
+                <MenuItem value="">Start of game</MenuItem>
+                {timeOptions.map((entry) => (
+                  <MenuItem key={`start-${entry._id}`} value={String(entry.gameSecondsElapsed ?? 0)}>
+                    {formatPeriodClock(entry.period ?? 1, entry.clockSecondsRemaining ?? 1200)}
+                  </MenuItem>
                 ))}
               </Select>
             </FormControl>
 
-            <FormControl fullWidth sx={{ minWidth: 140 }}>
+            <FormControl fullWidth sx={{ minWidth: 160 }}>
               <InputLabel sx={{ color: GREEN, fontWeight: 700 }}>End Time</InputLabel>
               <Select
-                value={timeRangeEnd}
+                value={timeRangeEnd === "" ? "" : String(timeRangeEnd)}
                 label="End Time"
-                onChange={(e) => setTimeRangeEnd(e.target.value)}
+                onChange={(e) =>
+                  setTimeRangeEnd(e.target.value === "" ? "" : Number(e.target.value))
+                }
                 sx={greenFieldSx}
                 MenuProps={greenMenuProps}
-                displayEmpty
               >
-                <MenuItem value="" sx={{ color: GREEN, fontWeight: 700 }}>End of game</MenuItem>
-                {sortedHistory.length > 0 && [...new Set(sortedHistory.map(h => formatTime(h.timestamp)))].map((time) => (
-                  <MenuItem key={time} value={time} sx={{ color: GREEN, fontWeight: 700 }}>{time}</MenuItem>
+                <MenuItem value="">End of game</MenuItem>
+                {timeOptions.map((entry) => (
+                  <MenuItem key={`end-${entry._id}`} value={String(entry.gameSecondsElapsed ?? 0)}>
+                    {formatPeriodClock(entry.period ?? 1, entry.clockSecondsRemaining ?? 1200)}
+                  </MenuItem>
                 ))}
               </Select>
             </FormControl>
@@ -371,6 +460,7 @@ export default function GameStats() {
           <Typography sx={{ fontWeight: 800, color: GREEN, mt: 3, mb: 1 }}>
             Stats to Display:
           </Typography>
+
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
             {STAT_FIELDS.map((stat) => (
               <Chip
@@ -383,7 +473,9 @@ export default function GameStats() {
                   fontWeight: 700,
                   cursor: "pointer",
                   "&:hover": {
-                    bgcolor: selectedStats.includes(stat.key) ? stat.color : "rgba(0,95,2,.2)",
+                    bgcolor: selectedStats.includes(stat.key)
+                      ? stat.color
+                      : "rgba(0,95,2,.2)",
                   },
                 }}
               />
@@ -395,6 +487,7 @@ export default function GameStats() {
               <Typography sx={{ fontWeight: 800, color: GREEN, mt: 3, mb: 1 }}>
                 Select Players:
               </Typography>
+
               <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
                 {players.map((player) => (
                   <Chip
@@ -406,9 +499,6 @@ export default function GameStats() {
                       color: selectedPlayers.includes(player._id) ? CREAM : GREEN,
                       fontWeight: 700,
                       cursor: "pointer",
-                      "&:hover": {
-                        bgcolor: selectedPlayers.includes(player._id) ? "#004a01" : "rgba(0,95,2,.2)",
-                      },
                     }}
                   />
                 ))}
@@ -432,51 +522,33 @@ export default function GameStats() {
             </Typography>
           ) : (
             <ResponsiveContainer width="100%" height={500}>
-              <LineChart
-                style={{ width: "100%", aspectRatio: 1.618, maxWidth: 1200, margin: "auto" }}
-                data={chartData}
-              >
+              <LineChart data={chartData}>
                 <CartesianGrid stroke={CREAM} strokeDasharray="5 5" strokeOpacity={0.3} />
-                <XAxis 
-                  dataKey="time" 
+                <XAxis
+                  dataKey="gameSecondsElapsed"
                   stroke={CREAM}
                   tick={{ fill: CREAM, fontWeight: 600 }}
-                  label={{ value: "Time", position: "insideBottomRight", offset: -5, fill: CREAM, fontWeight: 600 }}
                 />
-                <YAxis 
+                <YAxis
                   stroke={CREAM}
                   tick={{ fill: CREAM, fontWeight: 600 }}
                   tickCount={10}
                 />
+                <Tooltip
+                  formatter={(value: number, name: string) => [value, name]}
+                  labelFormatter={(_, payload) => {
+                    const point = payload?.[0]?.payload;
+                    return point?.label || "";
+                  }}
+                />
                 <Legend wrapperStyle={{ color: CREAM }} />
-                {viewMode === "total"
-                  ? STAT_FIELDS.filter((stat) => selectedStats.includes(stat.key)).map((stat) => (
-                      <Line
-                        key={stat.key}
-                        type="monotone"
-                        dataKey={stat.key}
-                        stroke={stat.color}
-                        strokeWidth={3}
-                        dot={{ r: 6, fill: stat.color, strokeWidth: 2, stroke: CREAM }}
-                        name={stat.label}
-                      />
-                    ))
-                  : viewMode === "cumulative"
-                  ? STAT_FIELDS.filter((stat) => selectedStats.includes(stat.key)).map((stat) => (
-                      <Line
-                        key={stat.key}
-                        type="monotone"
-                        dataKey={stat.key}
-                        stroke={stat.color}
-                        strokeWidth={3}
-                        dot={{ r: 6, fill: stat.color, strokeWidth: 2, stroke: CREAM }}
-                        name={stat.label}
-                      />
-                    ))
-                  : STAT_FIELDS.filter((stat) => selectedStats.includes(stat.key)).map((stat) =>
+
+                {viewMode === "players"
+                  ? STAT_FIELDS.filter((stat) => selectedStats.includes(stat.key)).flatMap((stat) =>
                       selectedPlayers.map((playerId) => {
                         const player = players.find((p) => p._id === playerId);
                         const playerName = player ? `#${player.number}` : playerId;
+
                         return (
                           <Line
                             key={`${playerId}-${stat.key}`}
@@ -489,7 +561,18 @@ export default function GameStats() {
                           />
                         );
                       })
-                    )}
+                    )
+                  : STAT_FIELDS.filter((stat) => selectedStats.includes(stat.key)).map((stat) => (
+                      <Line
+                        key={stat.key}
+                        type="monotone"
+                        dataKey={stat.key}
+                        stroke={stat.color}
+                        strokeWidth={3}
+                        dot={{ r: 5, fill: stat.color, strokeWidth: 2, stroke: CREAM }}
+                        name={stat.label}
+                      />
+                    ))}
               </LineChart>
             </ResponsiveContainer>
           )}

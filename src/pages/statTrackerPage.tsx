@@ -32,6 +32,9 @@ type Game = {
   gameDate: string;
   gameType: string;
   opponent?: { teamName?: string };
+  status?: "scheduled" | "live" | "intermission" | "final";
+  currentPeriod?: number;
+  clockSecondsRemaining?: number;
 };
 
 type Player = {
@@ -64,18 +67,34 @@ const API = {
   stats: "/api/stats",
 };
 
+const PERIOD_LENGTH_SECONDS = 20 * 60;
 const CREAM = "#fff2d1";
 const GREEN = "#005F02";
-
-const CARD_GOLD_1 = "#f7e7b3";
-const CARD_GOLD_2 = "#d7b35b";
-
 const PAGE_SIZE = 5;
 const SWIPE_THRESHOLD = 80;
 
 const intOrZero = (v: any) => {
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : 0;
+};
+
+const formatClock = (seconds: number) => {
+  const safe = Math.max(0, seconds);
+  const mins = Math.floor(safe / 60);
+  const secs = safe % 60;
+  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+};
+
+const parseClockToSeconds = (value: string) => {
+  const [m, s] = value.split(":").map(Number);
+  if (!Number.isFinite(m) || !Number.isFinite(s)) return PERIOD_LENGTH_SECONDS;
+  return Math.max(0, Math.min(PERIOD_LENGTH_SECONDS, m * 60 + s));
+};
+
+const getGameSecondsElapsed = (period: number, secondsRemaining: number) => {
+  const elapsedBeforePeriod = (Math.max(1, period) - 1) * PERIOD_LENGTH_SECONDS;
+  const elapsedThisPeriod = PERIOD_LENGTH_SECONDS - secondsRemaining;
+  return elapsedBeforePeriod + elapsedThisPeriod;
 };
 
 const greenFieldSx = {
@@ -91,31 +110,27 @@ const greenFieldSx = {
 
   "& .MuiSelect-icon": { color: GREEN },
 
-  // Selected value color
   "& .MuiSelect-select": { color: GREEN, fontWeight: 800 },
 
-  // IMPORTANT: disabled selects get greyed out unless you force text fill
   "&.Mui-disabled .MuiSelect-select": {
     WebkitTextFillColor: GREEN,
     color: GREEN,
     opacity: 1,
   },
 
-  // TextField inputs
   "& input": { color: GREEN, fontWeight: 800 },
 
-  // Disabled TextField inputs
   "& .MuiInputBase-input.Mui-disabled": {
     WebkitTextFillColor: GREEN,
     color: GREEN,
     opacity: 1,
   },
 };
-//z-index stacking Bug solved
+
 const greenMenuProps = {
   PaperProps: {
     sx: {
-      zIndex: 3000, 
+      zIndex: 3000,
       "& .MuiMenuItem-root": { color: GREEN, fontWeight: 800, opacity: 1 },
       "& .MuiMenuItem-root.Mui-selected": { backgroundColor: "rgba(0,95,2,0.10)" },
       "& .MuiMenuItem-root.Mui-selected:hover": { backgroundColor: "rgba(0,95,2,0.15)" },
@@ -124,12 +139,12 @@ const greenMenuProps = {
       "& .MuiList-root": { p: 0.5 },
     },
   },
-  
   sx: { zIndex: 3000 },
 };
 
 export default function StatTrackerPage() {
   const authFetch = useAuthFetch();
+
   const [teams, setTeams] = useState<Team[]>([]);
   const [games, setGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -147,18 +162,36 @@ export default function StatTrackerPage() {
 
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  //Overlay editor state
   const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
   const [editingStatKey, setEditingStatKey] = useState<keyof StatLine>("goals");
   const [editingValue, setEditingValue] = useState<number>(0);
 
-  //Load teams once
+  const [currentPeriod, setCurrentPeriod] = useState<number>(1);
+  const [clockSecondsRemaining, setClockSecondsRemaining] = useState<number>(PERIOD_LENGTH_SECONDS);
+  const [isClockRunning, setIsClockRunning] = useState(false);
+
+  useEffect(() => {
+    if (!isClockRunning) return;
+
+    const timer = window.setInterval(() => {
+      setClockSecondsRemaining((prev) => {
+        if (prev <= 1) {
+          setIsClockRunning(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [isClockRunning]);
+
   useEffect(() => {
     (async () => {
       setLoadingTeams(true);
       setMsg(null);
       try {
-        const res = await fetch(API.teams);
+        const res = await authFetch(API.teams);
         const data = await res.json();
         setTeams(Array.isArray(data) ? data : []);
       } catch (e) {
@@ -168,9 +201,8 @@ export default function StatTrackerPage() {
         setLoadingTeams(false);
       }
     })();
-  }, []);
+  }, [authFetch]);
 
-  // Load games + players when team changes
   useEffect(() => {
     if (!teamId) {
       setGames([]);
@@ -187,7 +219,7 @@ export default function StatTrackerPage() {
       try {
         const [gRes, pRes] = await Promise.all([
           authFetch(`${API.games}?teamId=${encodeURIComponent(teamId)}`),
-          fetch(`${API.players}?teamId=${encodeURIComponent(teamId)}`),
+          authFetch(`${API.players}?teamId=${encodeURIComponent(teamId)}`),
         ]);
 
         const gData = await gRes.json();
@@ -205,9 +237,8 @@ export default function StatTrackerPage() {
         setLoadingGameData(false);
       }
     })();
-  }, [teamId]);
+  }, [teamId, authFetch]);
 
-  // Load stats when game changes (initialize missing players)
   useEffect(() => {
     if (!teamId || !gameId) {
       setLinesByPlayerId({});
@@ -235,7 +266,6 @@ export default function StatTrackerPage() {
           for (const s of existing) map[s.playerId] = s;
         }
 
-        // Ensure every roster player has a line
         for (const p of players) {
           if (!map[p._id]) {
             map[p._id] = {
@@ -275,10 +305,16 @@ export default function StatTrackerPage() {
         setLoadingGameData(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamId, gameId, players.length]);
+  }, [teamId, gameId, players, authFetch]);
 
   const selectedGame = useMemo(() => games.find((g) => g._id === gameId), [games, gameId]);
+
+  useEffect(() => {
+    if (!selectedGame) return;
+
+    setCurrentPeriod(selectedGame.currentPeriod ?? 1);
+    setClockSecondsRemaining(selectedGame.clockSecondsRemaining ?? PERIOD_LENGTH_SECONDS);
+  }, [selectedGame]);
 
   const sortedPlayers = useMemo(() => [...players].sort((a, b) => a.number - b.number), [players]);
 
@@ -310,103 +346,108 @@ export default function StatTrackerPage() {
   }, [editingPlayerId, sortedPlayers]);
 
   const openEdit = (playerId: string) => {
-  let line = linesByPlayerId[playerId];
+    let line = linesByPlayerId[playerId];
 
-  // If stats failed to load, create a default line on the fly
-  if (!line) {
-    line = {
-      gameId,
-      teamId,
-      playerId,
-      goals: 0,
-      assists: 0,
-      shots: 0,
-      hits: 0,
-      pim: 0,
-      plusMinus: 0,
-      saves: 0,
-      goalsAgainst: 0,
-    };
+    if (!line) {
+      line = {
+        gameId,
+        teamId,
+        playerId,
+        goals: 0,
+        assists: 0,
+        shots: 0,
+        hits: 0,
+        pim: 0,
+        plusMinus: 0,
+        saves: 0,
+        goalsAgainst: 0,
+      };
 
-    setLinesByPlayerId(prev => ({
-      ...prev,
-      [playerId]: line!,
-    }));
-  }
+      setLinesByPlayerId((prev) => ({
+        ...prev,
+        [playerId]: line!,
+      }));
+    }
 
-  setEditingPlayerId(playerId);
-  setEditingStatKey("goals");
-  setEditingValue(line.goals ?? 0);
-};
+    setEditingPlayerId(playerId);
+    setEditingStatKey("goals");
+    setEditingValue(line.goals ?? 0);
+  };
 
   const closeEdit = () => setEditingPlayerId(null);
 
   const saveOne = async () => {
-  if (!editingPlayerId || !teamId || !gameId) return;
+    if (!editingPlayerId || !teamId || !gameId) return;
 
-  const playerLine = linesByPlayerId[editingPlayerId];
-  if (!playerLine) return;
+    const playerLine = linesByPlayerId[editingPlayerId];
+    if (!playerLine) return;
 
-  // local optimistic update
-  const nextLine: StatLine = {
-    ...playerLine,
-    [editingStatKey]:
-      editingStatKey === "plusMinus"
-        ? Number(editingValue) || 0
-        : intOrZero(editingValue),
-  };
-
-  setLinesByPlayerId((prev) => ({ ...prev, [editingPlayerId]: nextLine }));
-
-  setSavingOne(true);
-  setMsg(null);
-
-  try {
-    const payloadLine = {
-      playerId: nextLine.playerId,
-      goals: nextLine.goals,
-      assists: nextLine.assists,
-      shots: nextLine.shots,
-      hits: nextLine.hits,
-      pim: nextLine.pim,
-      plusMinus: nextLine.plusMinus,
-      saves: nextLine.saves,
-      goalsAgainst: nextLine.goalsAgainst,
+    const nextLine: StatLine = {
+      ...playerLine,
+      [editingStatKey]:
+        editingStatKey === "plusMinus"
+          ? Number(editingValue) || 0
+          : intOrZero(editingValue),
     };
 
-    const res = await authFetch(`${API.stats}/bulk`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ teamId, gameId, lines: [payloadLine] }),
-    });
+    setLinesByPlayerId((prev) => ({ ...prev, [editingPlayerId]: nextLine }));
+    setSavingOne(true);
+    setMsg(null);
 
-    // ✅ handle 204 / empty body / non-json safely
-    const raw = await res.text();
-    let data: any = null;
-    if (raw) {
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        // ignore parse errors; treat as non-json success/fail based on status
+    try {
+      const payloadLine = {
+        playerId: nextLine.playerId,
+        goals: nextLine.goals,
+        assists: nextLine.assists,
+        shots: nextLine.shots,
+        hits: nextLine.hits,
+        pim: nextLine.pim,
+        plusMinus: nextLine.plusMinus,
+        saves: nextLine.saves,
+        goalsAgainst: nextLine.goalsAgainst,
+      };
+
+      const gameSecondsElapsed = getGameSecondsElapsed(currentPeriod, clockSecondsRemaining);
+
+      const res = await authFetch(`${API.stats}/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          teamId,
+          gameId,
+          lines: [payloadLine],
+          historyMeta: {
+            period: currentPeriod,
+            clockSecondsRemaining,
+            gameSecondsElapsed,
+          },
+        }),
+      });
+
+      const raw = await res.text();
+      let data: any = null;
+      if (raw) {
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          // ignore non-json body
+        }
       }
+
+      if (!res.ok) {
+        setMsg({ type: "error", text: data?.error || `Failed to save stat. (${res.status})` });
+        return;
+      }
+
+      setMsg({ type: "success", text: "Stat saved!" });
+      closeEdit();
+    } catch (e) {
+      console.error(e);
+      setMsg({ type: "error", text: "Failed to save stat." });
+    } finally {
+      setSavingOne(false);
     }
-
-    if (!res.ok) {
-      setMsg({ type: "error", text: data?.error || `Failed to save stat. (${res.status})` });
-      return;
-    }
-
-    setMsg({ type: "success", text: "Stat saved!" });
-    closeEdit();
-  } catch (e) {
-    console.error(e);
-    setMsg({ type: "error", text: "Failed to save stat." });
-  } finally {
-    setSavingOne(false);
-  }
-};
-
-  const pageLabelColor = GREEN;
+  };
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: CREAM, pt: 12, pb: 5 }}>
@@ -426,11 +467,12 @@ export default function StatTrackerPage() {
             Stat Tracker
           </Typography>
 
-          {/* Controls */}
           <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
             <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
               <FormControl fullWidth sx={{ minWidth: 220 }} disabled={loadingTeams}>
-                <InputLabel shrink sx={{ color: GREEN, fontWeight: 700 }}>Team</InputLabel>
+                <InputLabel shrink sx={{ color: GREEN, fontWeight: 700 }}>
+                  Team
+                </InputLabel>
                 <Select
                   label="Team"
                   value={teamId}
@@ -452,7 +494,12 @@ export default function StatTrackerPage() {
               </FormControl>
 
               <FormControl fullWidth sx={{ minWidth: 320 }} disabled={!teamId}>
-                <InputLabel shrink sx={{ color: GREEN, fontWeight: 700, "&.Mui-disabled": { color: GREEN } }}>Game</InputLabel>
+                <InputLabel
+                  shrink
+                  sx={{ color: GREEN, fontWeight: 700, "&.Mui-disabled": { color: GREEN } }}
+                >
+                  Game
+                </InputLabel>
                 <Select
                   label="Game"
                   value={gameId}
@@ -501,7 +548,9 @@ export default function StatTrackerPage() {
                 </Typography>
               </Stack>
             ) : (
-              <Typography sx={{ opacity: 1, color: GREEN, fontWeight: 700 }}>Pick a game to load the player cards.</Typography>
+              <Typography sx={{ opacity: 1, color: GREEN, fontWeight: 700 }}>
+                Pick a game to load the player cards.
+              </Typography>
             )}
 
             {msg && (
@@ -511,22 +560,92 @@ export default function StatTrackerPage() {
             )}
           </Paper>
 
-          {/* Cards */}
+          {selectedGame && (
+            <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
+              <Stack spacing={2}>
+                <Typography sx={{ color: GREEN, fontWeight: 1000, fontSize: 24 }}>
+                  Live Game Controls
+                </Typography>
+
+                <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
+                  <FormControl sx={{ minWidth: 160 }}>
+                    <InputLabel sx={{ color: GREEN, fontWeight: 700 }}>Period</InputLabel>
+                    <Select
+                      value={String(currentPeriod)}
+                      label="Period"
+                      onChange={(e) => setCurrentPeriod(Number(e.target.value))}
+                      sx={greenFieldSx}
+                      MenuProps={greenMenuProps}
+                    >
+                      <MenuItem value="1">1st</MenuItem>
+                      <MenuItem value="2">2nd</MenuItem>
+                      <MenuItem value="3">3rd</MenuItem>
+                      <MenuItem value="4">OT</MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  <TextField
+                    label="Clock Remaining"
+                    value={formatClock(clockSecondsRemaining)}
+                    onChange={(e) => setClockSecondsRemaining(parseClockToSeconds(e.target.value))}
+                    sx={greenFieldSx}
+                  />
+
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      px: 3,
+                      py: 1.5,
+                      borderRadius: 3,
+                      bgcolor: GREEN,
+                      color: CREAM,
+                      textAlign: "center",
+                      minWidth: 180,
+                    }}
+                  >
+                    <Typography sx={{ fontWeight: 900, color: CREAM }}>Period {currentPeriod}</Typography>
+                    <Typography sx={{ fontWeight: 1000, fontSize: 32, lineHeight: 1.1, color: CREAM }}>
+                      {formatClock(clockSecondsRemaining)}
+                    </Typography>
+                  </Paper>
+
+                  <Button
+                    variant="contained"
+                    onClick={() => setIsClockRunning((v) => !v)}
+                    sx={{ bgcolor: GREEN, fontWeight: 900 }}
+                  >
+                    {isClockRunning ? "Pause Clock" : "Start Clock"}
+                  </Button>
+
+                  <Button
+                    variant="outlined"
+                    onClick={() => setClockSecondsRemaining(PERIOD_LENGTH_SECONDS)}
+                    sx={{ borderColor: GREEN, color: GREEN, fontWeight: 900 }}
+                  >
+                    Reset Period
+                  </Button>
+                </Stack>
+              </Stack>
+            </Paper>
+          )}
+
           <Paper elevation={6} sx={{ borderRadius: 4, p: 2.5 }}>
             {!teamId || !gameId ? (
               <Box sx={{ p: 2 }}>
-                <Typography sx = {{color:GREEN, fontWeight: 700}}>Select a team and game to begin.</Typography>
+                <Typography sx={{ color: GREEN, fontWeight: 700 }}>
+                  Select a team and game to begin.
+                </Typography>
               </Box>
             ) : (
               <Stack spacing={2}>
-                {/* Paging controls */}
                 <Stack direction="row" alignItems="center" spacing={1}>
                   <IconButton onClick={prevPage} disabled={!canPrev}>
                     <ChevronLeftIcon />
                   </IconButton>
 
                   <Typography sx={{ fontWeight: 1000, color: GREEN }}>
-                    Players {pageIndex * PAGE_SIZE + 1}–{Math.min(sortedPlayers.length, (pageIndex + 1) * PAGE_SIZE)} of{" "}
+                    Players {pageIndex * PAGE_SIZE + 1}–
+                    {Math.min(sortedPlayers.length, (pageIndex + 1) * PAGE_SIZE)} of{" "}
                     {sortedPlayers.length}
                   </Typography>
 
@@ -536,12 +655,11 @@ export default function StatTrackerPage() {
 
                   <Box sx={{ flex: 1 }} />
 
-                  <Typography sx={{ color: pageLabelColor, fontWeight: 1000 }}>
+                  <Typography sx={{ color: GREEN, fontWeight: 1000 }}>
                     Page {pageIndex + 1}/{totalPages}
                   </Typography>
                 </Stack>
 
-                {/* Swipe row */}
                 <Box sx={{ overflow: "visible" }}>
                   <Box
                     component={motion.div}
@@ -576,7 +694,6 @@ export default function StatTrackerPage() {
           </Paper>
         </Stack>
 
-        {/* Zoom overlay editor (replaces Dialog) */}
         <AnimatePresence>
           {editingPlayerId && editingPlayer && (
             <Box
@@ -735,7 +852,7 @@ function PlayerFifaCard({
         overflow: "visible",
         transition: "transform .15s ease",
         "&:hover": { transform: isLg ? "none" : "translateY(-5px)" },
-        background: `linear-gradient(135deg, #0a3d0a, #1a5c1a)`,
+        background: "linear-gradient(135deg, #0a3d0a, #1a5c1a)",
         border: "1px solid rgba(255,255,255,.15)",
         pointerEvents: isLg ? "none" : "auto",
       }}

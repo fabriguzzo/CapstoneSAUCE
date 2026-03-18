@@ -1,5 +1,11 @@
 const dao = require('../model/gameDao.js');
 
+function normalizeGameStatus(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return dao.GAME_STATUS.includes(normalized) ? normalized : null;
+}
+
 function normalizeGameType(value) {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase();
@@ -83,6 +89,8 @@ exports.create = async function (req, res) {
       },
 
       status: 'scheduled',
+      currentPeriod: 1,
+      clockSecondsRemaining: 20 * 60,
       score: { us: 0, them: 0 },
       dateCreated: new Date()
     };
@@ -151,7 +159,7 @@ exports.updateScore = async function (req, res) {
 
     const updatedGame = await dao.update(id, {
       score: { us, them },
-      status: 'in-progress'
+      status: 'live'
     });
 
     if (!updatedGame) {
@@ -184,7 +192,9 @@ exports.finishGame = async function (req, res) {
     const finishedGame = await dao.update(id, {
       score: { us, them },
       result,
-      status: 'finished',
+      status: 'final',
+      currentPeriod: req.body.currentPeriod ? Number(req.body.currentPeriod) : 3,
+      clockSecondsRemaining: 0,
       dateFinished: new Date()
     });
 
@@ -288,5 +298,48 @@ exports.deleteAll = async function (req, res) {
     console.error('Error deleting all games:', err);
     res.status(500).json({ error: 'Failed to delete games' });
   }
+
+exports.updateLiveState = async function (req, res) {
+  try {
+    const id = req.params.id;
+    const update = {};
+
+    if (typeof req.body.status !== 'undefined') {
+      const status = normalizeGameStatus(req.body.status);
+      if (!status) {
+        return res.status(400).json({ error: 'Invalid game status' });
+      }
+      update.status = status;
+    }
+
+    if (typeof req.body.currentPeriod !== 'undefined') {
+      const currentPeriod = Number(req.body.currentPeriod);
+      if (!Number.isInteger(currentPeriod) || currentPeriod < 1) {
+        return res.status(400).json({ error: 'currentPeriod must be a positive integer' });
+      }
+      update.currentPeriod = currentPeriod;
+    }
+
+    if (typeof req.body.clockSecondsRemaining !== 'undefined') {
+      const seconds = Number(req.body.clockSecondsRemaining);
+      if (!Number.isInteger(seconds) || seconds < 0) {
+        return res.status(400).json({ error: 'clockSecondsRemaining must be a non-negative integer' });
+      }
+      update.clockSecondsRemaining = seconds;
+    }
+
+    const updatedGame = await dao.update(id, update);
+
+    if (!updatedGame) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    res.status(200).json(updatedGame);
+    }catch (err) {
+      console.error('Error updating live state:', err);
+      res.status(500).json({ error: 'Failed to update live state' });
+    }
+  };
 };
+
 

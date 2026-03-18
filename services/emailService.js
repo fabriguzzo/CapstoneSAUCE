@@ -1,10 +1,26 @@
 const { Resend } = require('resend');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 const FROM_EMAIL = process.env.FROM_EMAIL || 'onboarding@resend.dev';
+let hasWarnedAboutMissingResendKey = false;
+
+function getResendClient() {
+  const apiKey = process.env.RESEND_API_KEY;
+
+  if (!apiKey) {
+    if (!hasWarnedAboutMissingResendKey) {
+      console.warn('RESEND_API_KEY is not set. Email sending is disabled until it is added to the environment.');
+      hasWarnedAboutMissingResendKey = true;
+    }
+
+    throw new Error('Missing RESEND_API_KEY in environment variables');
+  }
+
+  return new Resend(apiKey);
+}
 
 exports.sendPasswordResetEmail = async (toEmail, resetUrl) => {
+  const resend = getResendClient();
+
   await resend.emails.send({
     from: FROM_EMAIL,
     to: toEmail,
@@ -23,6 +39,8 @@ exports.sendPasswordResetEmail = async (toEmail, resetUrl) => {
 };
 
 exports.sendApprovalNotificationEmail = async (toEmail, teamName) => {
+  const resend = getResendClient();
+
   await resend.emails.send({
     from: FROM_EMAIL,
     to: toEmail,

@@ -25,6 +25,8 @@ const GAME_TYPES = [
   'tournament'
 ];
 
+const GAME_STATUS = ['scheduled', 'live', 'intermission', 'final'];
+
 const GameSchema = new mongoose.Schema({
   teamId: { type: mongoose.Schema.Types.ObjectId, required: true },
 
@@ -32,7 +34,7 @@ const GameSchema = new mongoose.Schema({
 
   gameDate: { type: Date, required: true },
 
-  lineup: [LineupEntrySchema], // 15 selected players
+  lineup: [LineupEntrySchema],
 
   opponent: {
     teamName: String,
@@ -46,19 +48,33 @@ const GameSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ['scheduled', 'in-progress', 'finished'],
+    enum: GAME_STATUS,
     default: 'scheduled'
+  },
+
+  currentPeriod: {
+    type: Number,
+    default: 1,
+    min: 1
+  },
+
+  clockSecondsRemaining: {
+    type: Number,
+    default: 1200,
+    min: 0
   },
 
   result: String,
 
   dateCreated: { type: Date, default: Date.now },
-  dateUpdated: Date
+  dateUpdated: Date,
+  dateFinished: Date
 });
 
 const Game = mongoose.model('Game', GameSchema);
 
 exports.GAME_TYPES = GAME_TYPES;
+exports.GAME_STATUS = GAME_STATUS;
 
 exports.create = async (data) => {
   const game = new Game(data);
@@ -85,4 +101,3 @@ exports.del = async (id) => {
 exports.deleteAll = async (filter = {}) => {
   return await Game.deleteMany(filter);
 };
-

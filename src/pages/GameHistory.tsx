@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useAuthFetch } from "../hooks/useAuthFetch";
 import {
   Box,
   Container,
@@ -13,10 +12,11 @@ import {
   TableRow,
   CircularProgress,
   Chip,
+  Button,
+  Stack,
 } from "@mui/material";
 import { Visibility as ViewIcon } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
-import Navbar from "../components/Navbar";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
 
@@ -32,6 +32,9 @@ interface ApiGame {
   gameDate: string;
   opponent?: { teamName?: string };
   score?: { us?: number; them?: number };
+  status?: "scheduled" | "live" | "intermission" | "final";
+  currentPeriod?: number;
+  clockSecondsRemaining?: number;
 }
 
 interface Game {
@@ -43,14 +46,34 @@ interface Game {
   opponentTeamName: string;
   teamScore?: number;
   opponentScore?: number;
+  status?: "scheduled" | "live" | "intermission" | "final";
+  currentPeriod?: number;
+  clockSecondsRemaining?: number;
 }
 
 const CREAM = "#fff2d1";
 const GREEN = "#005F02";
 
+function formatClock(seconds = 0) {
+  const safe = Math.max(0, seconds);
+  const minutes = Math.floor(safe / 60);
+  const secs = safe % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+function getStatusLabel(game: Game) {
+  if (game.status === "live") {
+    return `Live • P${game.currentPeriod ?? "-"} • ${formatClock(game.clockSecondsRemaining ?? 0)}`;
+  }
+  if (game.status === "intermission") {
+    return `Intermission • P${game.currentPeriod ?? "-"}`;
+  }
+  if (game.status === "final") return "Final";
+  return "Scheduled";
+}
+
 export default function GameHistory() {
   const navigate = useNavigate();
-  const authFetch = useAuthFetch();
   const [games, setGames] = useState<Game[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -61,9 +84,10 @@ export default function GameHistory() {
   async function fetchData() {
     try {
       setIsLoading(true);
+
       const [teamsRes, gamesRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/teams`),
-        authFetch(`${API_BASE_URL}/api/games`),
+        fetch(`${API_BASE_URL}/api/games`),
       ]);
 
       const teamsData: ApiTeam[] = await teamsRes.json();
@@ -83,9 +107,16 @@ export default function GameHistory() {
         opponentTeamName: game.opponent?.teamName || "Unknown Opponent",
         teamScore: game.score?.us ?? 0,
         opponentScore: game.score?.them ?? 0,
+        status: game.status,
+        currentPeriod: game.currentPeriod,
+        clockSecondsRemaining: game.clockSecondsRemaining,
       }));
 
-      setGames(mappedGames.sort((a, b) => new Date(b.gameDate).getTime() - new Date(a.gameDate).getTime()));
+      setGames(
+        mappedGames.sort(
+          (a, b) => new Date(b.gameDate).getTime() - new Date(a.gameDate).getTime()
+        )
+      );
     } catch (err) {
       console.error("Error fetching data:", err);
     } finally {
@@ -93,21 +124,32 @@ export default function GameHistory() {
     }
   }
 
-  const handleViewClick = (gameId: string) => {
+  const handleHistoryClick = (gameId: string) => {
     navigate(`/gamestats/${gameId}`);
+  };
+
+  const handleLiveClick = (gameId: string) => {
+    navigate(`/games/${gameId}/live`);
   };
 
   if (isLoading) {
     return (
-      <Box sx={{ minHeight: "100vh", bgcolor: CREAM, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <Box
+        sx={{
+          minHeight: "100vh",
+          bgcolor: CREAM,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
         <CircularProgress sx={{ color: GREEN }} />
       </Box>
     );
   }
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, pt: 12, pb: { xs: 6, md: 8 } }}>
-      <Navbar />
+    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, py: { xs: 6, md: 8 } }}>
       <Container maxWidth="lg">
         <Typography
           sx={{
@@ -144,10 +186,12 @@ export default function GameHistory() {
                     <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Team</TableCell>
                     <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Opponent</TableCell>
                     <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Type</TableCell>
+                    <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Status</TableCell>
                     <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Score</TableCell>
                     <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Actions</TableCell>
                   </TableRow>
                 </TableHead>
+
                 <TableBody>
                   {games.map((game) => (
                     <TableRow key={game._id}>
@@ -167,25 +211,65 @@ export default function GameHistory() {
                           }}
                         />
                       </TableCell>
+                      <TableCell sx={{ color: GREEN }}>
+                        <Chip
+                          label={getStatusLabel(game)}
+                          size="small"
+                          sx={{
+                            bgcolor:
+                              game.status === "live"
+                                ? "rgba(0,95,2,.18)"
+                                : game.status === "intermission"
+                                ? "rgba(255,193,7,.22)"
+                                : "rgba(0,95,2,.1)",
+                            color: GREEN,
+                            fontSize: 12,
+                            fontWeight: 700,
+                          }}
+                        />
+                      </TableCell>
                       <TableCell>
                         <Typography sx={{ color: GREEN, fontWeight: 700 }}>
                           {game.teamScore ?? 0} - {game.opponentScore ?? 0}
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Box
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            cursor: "pointer",
-                            color: GREEN,
-                            "&:hover": { opacity: 0.7 },
-                          }}
-                          onClick={() => handleViewClick(game._id)}
-                        >
-                          <ViewIcon fontSize="small" sx={{ mr: 0.5, color: GREEN }} />
-                          <Typography sx={{ fontWeight: 600, fontSize: 14, color: GREEN }}>View</Typography>
-                        </Box>
+                        <Stack direction="row" spacing={1}>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<ViewIcon />}
+                            onClick={() => handleHistoryClick(game._id)}
+                            sx={{
+                              borderColor: GREEN,
+                              color: GREEN,
+                              fontWeight: 700,
+                              textTransform: "none",
+                            }}
+                          >
+                            History
+                          </Button>
+
+                          <Button
+                            size="small"
+                            variant="contained"
+                            onClick={() => handleLiveClick(game._id)}
+                            disabled={game.status !== "live" && game.status !== "intermission"}
+                            sx={{
+                              bgcolor: GREEN,
+                              color: CREAM,
+                              fontWeight: 700,
+                              textTransform: "none",
+                              "&:hover": { bgcolor: "#004a01" },
+                              "&.Mui-disabled": {
+                                bgcolor: "rgba(0,95,2,.18)",
+                                color: "rgba(0,95,2,.45)",
+                              },
+                            }}
+                          >
+                            Live
+                          </Button>
+                        </Stack>
                       </TableCell>
                     </TableRow>
                   ))}
