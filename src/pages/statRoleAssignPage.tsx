@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useAuthFetch } from "../hooks/useAuthFetch";
 import {
   Alert,
   Box,
@@ -15,6 +16,7 @@ import {
   Typography,
   Divider,
 } from "@mui/material";
+import Navbar from "../components/Navbar";
 
 type Team = { _id: string; name: string };
 type Player = { _id: string; name: string; number: number; teamId: string; position?: string };
@@ -52,6 +54,7 @@ const STAT_OPTIONS: { key: StatKey; label: string }[] = [
 ];
 
 export default function StatRoleAssignPage() {
+  const authFetch = useAuthFetch();
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
 
@@ -96,7 +99,7 @@ export default function StatRoleAssignPage() {
       try {
         const [pRes, rRes] = await Promise.all([
           fetch(`${API.players}?teamId=${encodeURIComponent(teamId)}`),
-          fetch(`${API.roles}?teamId=${encodeURIComponent(teamId)}`),
+          authFetch(`${API.roles}?teamId=${encodeURIComponent(teamId)}`),
         ]);
 
         const pData = await pRes.json();
@@ -151,7 +154,7 @@ export default function StatRoleAssignPage() {
         statKey,
       }));
 
-      const res = await fetch(`${API.roles}/bulk`, {
+      const res = await authFetch(`${API.roles}/bulk`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ teamId, assignments }),
@@ -175,7 +178,8 @@ export default function StatRoleAssignPage() {
   };
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, py: 5 }}>
+    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, pt: 12, pb: 5 }}>
+      <Navbar />
       <Container maxWidth="md">
         <Stack spacing={2.5}>
           <Typography sx={{ textAlign: "center", fontWeight: 1000, color: GREEN, fontSize: { xs: 30, md: 44 } }}>

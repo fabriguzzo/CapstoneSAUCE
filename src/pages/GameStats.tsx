@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
+import { useAuthFetch } from "../hooks/useAuthFetch";
 import {
   Box,
   Container,
@@ -108,6 +109,7 @@ function parseTimeToMinutes(timeStr: string): number {
 export default function GameStats() {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
+  const authFetch = useAuthFetch();
 
   const [game, setGame] = useState<Game | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -130,7 +132,7 @@ export default function GameStats() {
     try {
       setIsLoading(true);
       
-      const gameRes = await fetch(`${API_BASE_URL}/api/games/${gameId}`);
+      const gameRes = await authFetch(`${API_BASE_URL}/api/games/${gameId}`);
       const gameData = await gameRes.json();
       setGame(gameData);
 
@@ -140,7 +142,7 @@ export default function GameStats() {
       const playersData = await playersRes.json();
       setPlayers(Array.isArray(playersData) ? playersData : []);
 
-      const historyRes = await fetch(`${API_BASE_URL}/api/stats/history/game/${gameId}`);
+      const historyRes = await authFetch(`${API_BASE_URL}/api/stats/history/game/${gameId}`);
       const historyData = await historyRes.json();
       setStatHistory(Array.isArray(historyData) ? historyData : []);
     } catch (err) {

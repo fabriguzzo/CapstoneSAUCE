@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Container, Typography, Box, Paper, Card, CardContent, Button, CircularProgress, Alert } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import Navbar from '../components/Navbar';
 
 interface Feedback {
   _id: string;
@@ -54,50 +55,7 @@ export default function ViewFeedbackPage() {
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#005F02' }}>
-      <Box sx={{ 
-        position: 'fixed', 
-        top: 0, 
-        left: 0, 
-        right: 0, 
-        zIndex: 1000,
-        bgcolor: '#fff2d1',
-        boxShadow: 1
-      }}>
-        <Container maxWidth="lg">
-          <Box sx={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center',
-            py: 2
-          }}>
-            <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#005F02', cursor: 'pointer' }} onClick={handleBackClick}>
-              SAUCE
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <Button 
-                variant="text" 
-                onClick={() => navigate('/about')}
-                sx={{ color: '#005F02' }}
-              >
-                About
-              </Button>
-              <Button 
-                variant="text" 
-                onClick={handleGoToContact}
-                sx={{ color: '#005F02' }}
-              >
-                Contact Us
-              </Button>
-              <Button 
-                variant="contained" 
-                sx={{ bgcolor: '#005F02', color: '#fff2d1' }}
-              >
-                Sign Up
-              </Button>
-            </Box>
-          </Box>
-        </Container>
-      </Box>
+      <Navbar />
 
       <Container maxWidth="lg" sx={{ pt: 12, pb: 8 }}>
         <Paper 

@@ -28,31 +28,31 @@ const theme = createTheme({
     fontFamily: '"Inter", "Helvetica", "Arial", sans-serif',
     h1: {
       fontFamily: '"Inter", "Helvetica", "Arial", sans-serif',
-      color: '#fff2d1',
+      color: '#005F02',
       fontWeight: 600,
     },
     h2: {
       fontFamily: '"Inter", "Helvetica", "Arial", sans-serif',
-      color: '#fff2d1',
+      color: '#005F02',
       fontWeight: 600,
     },
     h3: {
       fontFamily: '"Inter", "Helvetica", "Arial", sans-serif',
-      color: '#fff2d1',
+      color: '#005F02',
       fontWeight: 500,
     },
     h4: {
       fontFamily: '"Inter", "Helvetica", "Arial", sans-serif',
-      color: '#fff2d1',
+      color: '#005F02',
       fontWeight: 400,
     },
     body1: {
       fontFamily: '"Inter", "Helvetica", "Arial", sans-serif',
-      color: '#fff2d1',
+      color: '#005F02',
     },
     body2: {
       fontFamily: '"Inter", "Helvetica", "Arial", sans-serif',
-      color: '#fff2d1',
+      color: '#005F02',
     },
   },
   components: {

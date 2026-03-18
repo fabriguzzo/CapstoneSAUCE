@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useAuthFetch } from "../hooks/useAuthFetch";
 import {
   Alert,
   Box,
@@ -21,6 +22,7 @@ import {
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { motion, AnimatePresence } from "framer-motion";
+import Navbar from "../components/Navbar";
 
 type Team = { _id: string; name: string };
 
@@ -127,6 +129,7 @@ const greenMenuProps = {
 };
 
 export default function StatTrackerPage() {
+  const authFetch = useAuthFetch();
   const [teams, setTeams] = useState<Team[]>([]);
   const [games, setGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -183,7 +186,7 @@ export default function StatTrackerPage() {
       setMsg(null);
       try {
         const [gRes, pRes] = await Promise.all([
-          fetch(`${API.games}?teamId=${encodeURIComponent(teamId)}`),
+          authFetch(`${API.games}?teamId=${encodeURIComponent(teamId)}`),
           fetch(`${API.players}?teamId=${encodeURIComponent(teamId)}`),
         ]);
 
@@ -216,7 +219,7 @@ export default function StatTrackerPage() {
       setLoadingGameData(true);
       setMsg(null);
       try {
-        const res = await fetch(
+        const res = await authFetch(
           `${API.stats}?teamId=${encodeURIComponent(teamId)}&gameId=${encodeURIComponent(gameId)}`
         );
 
@@ -371,7 +374,7 @@ export default function StatTrackerPage() {
       goalsAgainst: nextLine.goalsAgainst,
     };
 
-    const res = await fetch(`${API.stats}/bulk`, {
+    const res = await authFetch(`${API.stats}/bulk`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ teamId, gameId, lines: [payloadLine] }),
@@ -406,7 +409,8 @@ export default function StatTrackerPage() {
   const pageLabelColor = GREEN;
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, py: 5 }}>
+    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, pt: 12, pb: 5 }}>
+      <Navbar />
       <Container maxWidth="lg">
         <Stack spacing={2.5}>
           <Typography
@@ -426,12 +430,13 @@ export default function StatTrackerPage() {
           <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
             <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
               <FormControl fullWidth sx={{ minWidth: 220 }} disabled={loadingTeams}>
-                <InputLabel sx={{ color: GREEN, fontWeight: 700 }}>Team</InputLabel>
+                <InputLabel shrink sx={{ color: GREEN, fontWeight: 700 }}>Team</InputLabel>
                 <Select
                   label="Team"
                   value={teamId}
                   onChange={onTeamChange}
                   displayEmpty
+                  notched
                   sx={greenFieldSx}
                   MenuProps={greenMenuProps}
                 >
@@ -447,12 +452,13 @@ export default function StatTrackerPage() {
               </FormControl>
 
               <FormControl fullWidth sx={{ minWidth: 320 }} disabled={!teamId}>
-                <InputLabel sx={{ color: GREEN, fontWeight: 700 }}>Game</InputLabel>
+                <InputLabel shrink sx={{ color: GREEN, fontWeight: 700, "&.Mui-disabled": { color: GREEN } }}>Game</InputLabel>
                 <Select
                   label="Game"
                   value={gameId}
                   onChange={onGameChange}
                   displayEmpty
+                  notched
                   sx={greenFieldSx}
                   MenuProps={greenMenuProps}
                 >
@@ -734,7 +740,7 @@ function PlayerFifaCard({
         pointerEvents: isLg ? "none" : "auto",
       }}
     >
-      <Box sx={{ p: pad, color: "#fff" }}>
+      <Box sx={{ p: pad, color: "#fff", "& .MuiTypography-root": { color: "#fff" } }}>
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
           <Box>
             <Typography sx={{ fontWeight: 1000, fontSize: numSize, lineHeight: 1 }}>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useAuthFetch } from "../hooks/useAuthFetch";
 import {
   Box,
   Container,
@@ -15,6 +16,7 @@ import {
 } from "@mui/material";
 import { Visibility as ViewIcon } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
+import Navbar from "../components/Navbar";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
 
@@ -48,6 +50,7 @@ const GREEN = "#005F02";
 
 export default function GameHistory() {
   const navigate = useNavigate();
+  const authFetch = useAuthFetch();
   const [games, setGames] = useState<Game[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -60,7 +63,7 @@ export default function GameHistory() {
       setIsLoading(true);
       const [teamsRes, gamesRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/teams`),
-        fetch(`${API_BASE_URL}/api/games`),
+        authFetch(`${API_BASE_URL}/api/games`),
       ]);
 
       const teamsData: ApiTeam[] = await teamsRes.json();
@@ -103,7 +106,8 @@ export default function GameHistory() {
   }
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, py: { xs: 6, md: 8 } }}>
+    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, pt: 12, pb: { xs: 6, md: 8 } }}>
+      <Navbar />
       <Container maxWidth="lg">
         <Typography
           sx={{

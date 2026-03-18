@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
+import { useAuthFetch } from "../hooks/useAuthFetch";
 import {
   Box,
   Container,
@@ -21,6 +22,7 @@ import {
 } from "@mui/material";
 import { Add as AddIcon, Remove as RemoveIcon, Edit as EditIcon, Delete as DeleteIcon } from "@mui/icons-material";
 import { AnimatePresence, motion } from "framer-motion";
+import Navbar from "../components/Navbar";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
@@ -113,6 +115,7 @@ function playerLabel(p: RosterPlayer) {
 }
 
 export default function GameCrud() {
+  const authFetch = useAuthFetch();
   const [activePanel, setActivePanel] = useState<"home" | "opp">("home");
 
   const [teams, setTeams] = useState<TeamOption[]>([]);
@@ -142,7 +145,7 @@ export default function GameCrud() {
   async function fetchTeams() {
     try {
       setIsLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/teams`);
+      const response = await authFetch(`${API_BASE_URL}/api/teams`);
       if (!response.ok) {
         throw new Error('Failed to fetch teams');
       }
@@ -160,7 +163,7 @@ export default function GameCrud() {
   async function fetchPlayers(teamId: string) {
     try {
       setIsLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/players?teamId=${teamId}`);
+      const response = await authFetch(`${API_BASE_URL}/api/players?teamId=${teamId}`);
       if (!response.ok) {
         throw new Error('Failed to fetch players');
       }
@@ -177,7 +180,7 @@ export default function GameCrud() {
 
   async function fetchGames() {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/games`);
+      const response = await authFetch(`${API_BASE_URL}/api/games`);
       if (!response.ok) {
         throw new Error('Failed to fetch games');
       }
@@ -304,7 +307,7 @@ export default function GameCrud() {
     
     try {
       setIsSubmitting(true);
-      const response = await fetch(`${API_BASE_URL}/api/games`, {
+      const response = await authFetch(`${API_BASE_URL}/api/games`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -369,7 +372,7 @@ export default function GameCrud() {
     
     try {
       setIsSubmitting(true);
-      const response = await fetch(`${API_BASE_URL}/api/games/${editingGame}`, {
+      const response = await authFetch(`${API_BASE_URL}/api/games/${editingGame}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -473,7 +476,7 @@ export default function GameCrud() {
   async function deleteGame(gameId: string) {
     if (confirm('Are you sure you want to delete this game?')) {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/games/${gameId}`, {
+        const response = await authFetch(`${API_BASE_URL}/api/games/${gameId}`, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
         });
@@ -499,7 +502,7 @@ export default function GameCrud() {
       const gamesWithScores = games.filter(g => g.teamScore !== undefined || g.opponentScore !== undefined);
       
       for (const game of gamesWithScores) {
-        await fetch(`${API_BASE_URL}/api/games/${game._id}/score`, {
+        await authFetch(`${API_BASE_URL}/api/games/${game._id}/score`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -530,7 +533,8 @@ export default function GameCrud() {
   }
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, py: { xs: 6, md: 8 }, ...GREEN_TEXT_SX }}>
+    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, pt: 12, pb: { xs: 6, md: 8 }, ...GREEN_TEXT_SX }}>
+      <Navbar />
       <Container maxWidth="lg">
         <Typography
           sx={{

@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { motion, useInView } from "framer-motion";
 import { Container, Typography, Box, Paper, Button } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import Navbar from '../components/Navbar';
 
 export function AboutSection() {
   const ref = useRef(null);
@@ -127,73 +128,7 @@ export default function LandingPage() {
 
   return (
     <Box>
-      {/* Navigation Header */}
-      <Box sx={{ 
-        position: 'fixed', 
-        top: 0, 
-        left: 0, 
-        right: 0, 
-        zIndex: 1000,
-        bgcolor: 'background.default',
-        boxShadow: 1
-      }}>
-        <Container maxWidth="lg">
-          <Box sx={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center',
-            py: 2
-          }}>
-            <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-              SAUCE
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <Button
-                variant="text"
-                onClick={handleGameHistoryClick}
-                sx={{ color: 'text.primary' }}
-              >
-                Game History
-              </Button>
-              <Button
-                variant="text"
-                onClick={handleGameCrudClick}
-                sx={{ color: 'text.primary' }}
-              >
-                GameCRUD
-              </Button>
-              <Button
-                variant="text"
-                onClick={handlePlayerTeamCrudClick}
-                sx={{ color: 'text.primary' }}
-              >
-                Team & Player CRUD
-              </Button>
-              <Button 
-                variant="text" 
-                onClick={handleAboutClick}
-                sx={{ color: 'text.primary' }}
-              >
-                About
-              </Button>
-              <Button 
-                variant="text" 
-                onClick={handleContactClick}
-                sx={{ color: 'text.primary' }}
-              >
-                Contact Us
-              </Button>
-              <Button 
-                variant="contained" 
-                onClick={handleSignUpClick}
-                sx={{ bgcolor: 'primary.main' }}
-              >
-                Sign Up
-              </Button>
-            </Box>
-          </Box>
-        </Container>
-      </Box>
+      <Navbar />
 
       {/* Main Content */}
       <Box sx={{ pt: 8 }}>

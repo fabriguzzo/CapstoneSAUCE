@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useAuthFetch } from "../hooks/useAuthFetch";
 import {
   Box,
   Container,
@@ -21,6 +22,7 @@ import {
   InputLabel,
 } from "@mui/material";
 import { Edit as EditIcon, Delete as DeleteIcon } from "@mui/icons-material";
+import Navbar from "../components/Navbar";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
@@ -59,6 +61,7 @@ interface Player {
 }
 
 export default function PlayerTeamCrud() {
+  const authFetch = useAuthFetch();
   const [activeTab, setActiveTab] = useState<"teams" | "players">("teams");
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -85,7 +88,7 @@ export default function PlayerTeamCrud() {
   async function fetchTeams() {
     try {
       setIsLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/teams`);
+      const response = await authFetch(`${API_BASE_URL}/api/teams`);
       if (!response.ok) throw new Error('Failed to fetch teams');
       const data = await response.json();
       setTeams(data);
@@ -100,10 +103,10 @@ export default function PlayerTeamCrud() {
     try {
       setIsLoading(true);
       const url = teamId ? `${API_BASE_URL}/api/players?teamId=${teamId}` : `${API_BASE_URL}/api/players`;
-      const response = await fetch(url);
+      const response = await authFetch(url);
       if (!response.ok) throw new Error('Failed to fetch players');
       const data = await response.json();
-      const teamsData = await fetch(`${API_BASE_URL}/api/teams`).then(r => r.json());
+      const teamsData = await authFetch(`${API_BASE_URL}/api/teams`).then(r => r.json());
       const teamMap = new Map(teamsData.map((t: Team) => [t._id, t.name]));
       const playersWithTeamName = data.map((p: Player) => ({
         ...p,
@@ -125,7 +128,7 @@ export default function PlayerTeamCrud() {
 
     try {
       setIsSubmitting(true);
-      const response = await fetch(`${API_BASE_URL}/api/teams`, {
+      const response = await authFetch(`${API_BASE_URL}/api/teams`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -159,7 +162,7 @@ export default function PlayerTeamCrud() {
 
     try {
       setIsSubmitting(true);
-      const response = await fetch(`${API_BASE_URL}/api/teams/${editingTeamId}`, {
+      const response = await authFetch(`${API_BASE_URL}/api/teams/${editingTeamId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -188,7 +191,7 @@ export default function PlayerTeamCrud() {
   async function deleteTeam(teamId: string) {
     if (confirm('Are you sure you want to delete this team?')) {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/teams/${teamId}`, {
+        const response = await authFetch(`${API_BASE_URL}/api/teams/${teamId}`, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
         });
@@ -225,7 +228,7 @@ export default function PlayerTeamCrud() {
 
     try {
       setIsSubmitting(true);
-      const response = await fetch(`${API_BASE_URL}/api/players`, {
+      const response = await authFetch(`${API_BASE_URL}/api/players`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -260,7 +263,7 @@ export default function PlayerTeamCrud() {
 
     try {
       setIsSubmitting(true);
-      const response = await fetch(`${API_BASE_URL}/api/players/${editingPlayerId}`, {
+      const response = await authFetch(`${API_BASE_URL}/api/players/${editingPlayerId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -290,7 +293,7 @@ export default function PlayerTeamCrud() {
   async function deletePlayer(playerId: string) {
     if (confirm('Are you sure you want to delete this player?')) {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/players/${playerId}`, {
+        const response = await authFetch(`${API_BASE_URL}/api/players/${playerId}`, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
         });
@@ -330,7 +333,8 @@ export default function PlayerTeamCrud() {
   }
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, py: { xs: 6, md: 8 }, ...GREEN_TEXT_SX }}>
+    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, pt: 12, pb: { xs: 6, md: 8 }, ...GREEN_TEXT_SX }}>
+      <Navbar />
       <Container maxWidth="lg">
         <Typography
           sx={{
