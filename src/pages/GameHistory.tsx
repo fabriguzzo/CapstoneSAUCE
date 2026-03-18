@@ -17,6 +17,8 @@ import {
 } from "@mui/material";
 import { Visibility as ViewIcon } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
+import Navbar from "../components/Navbar";
+import { useAuthFetch } from "../hooks/useAuthFetch";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
 
@@ -30,6 +32,8 @@ interface ApiGame {
   teamId: string;
   gameType: string;
   gameDate: string;
+  startTime?: string;
+  endTime?: string;
   opponent?: { teamName?: string };
   score?: { us?: number; them?: number };
   status?: "scheduled" | "live" | "intermission" | "final";
@@ -43,6 +47,8 @@ interface Game {
   teamName: string;
   gameType: string;
   gameDate: string;
+  startTime?: string;
+  endTime?: string;
   opponentTeamName: string;
   teamScore?: number;
   opponentScore?: number;
@@ -74,6 +80,7 @@ function getStatusLabel(game: Game) {
 
 export default function GameHistory() {
   const navigate = useNavigate();
+  const authFetch = useAuthFetch();
   const [games, setGames] = useState<Game[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -86,8 +93,8 @@ export default function GameHistory() {
       setIsLoading(true);
 
       const [teamsRes, gamesRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/teams`),
-        fetch(`${API_BASE_URL}/api/games`),
+        authFetch(`${API_BASE_URL}/api/teams`),
+        authFetch(`${API_BASE_URL}/api/games`),
       ]);
 
       const teamsData: ApiTeam[] = await teamsRes.json();
@@ -104,6 +111,8 @@ export default function GameHistory() {
         teamName: teamsMap[game.teamId] || "Unknown Team",
         gameType: game.gameType,
         gameDate: game.gameDate,
+        startTime: game.startTime,
+        endTime: game.endTime,
         opponentTeamName: game.opponent?.teamName || "Unknown Opponent",
         teamScore: game.score?.us ?? 0,
         opponentScore: game.score?.them ?? 0,
@@ -149,7 +158,9 @@ export default function GameHistory() {
   }
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, py: { xs: 6, md: 8 } }}>
+    <>
+      <Navbar />
+    <Box sx={{ minHeight: "100vh", bgcolor: CREAM, py: { xs: 6, md: 8 }, pt: { xs: 12, md: 14 } }}>
       <Container maxWidth="lg">
         <Typography
           sx={{
@@ -157,13 +168,29 @@ export default function GameHistory() {
             fontWeight: 900,
             letterSpacing: "-0.03em",
             fontSize: { xs: 34, sm: 44, md: 60 },
-            mb: 3,
+            mb: 2,
             color: GREEN,
             fontFamily: "Oswald, sans-serif",
           }}
         >
           Game History
         </Typography>
+
+        <Stack direction="row" justifyContent="center" sx={{ mb: 3 }}>
+          <Button
+            variant="contained"
+            onClick={() => navigate("/opponent-overview")}
+            sx={{
+              bgcolor: GREEN,
+              color: CREAM,
+              fontWeight: 700,
+              px: 3,
+              "&:hover": { bgcolor: "#004a01" },
+            }}
+          >
+            Opponent Overview
+          </Button>
+        </Stack>
 
         <Paper
           elevation={6}
@@ -183,6 +210,8 @@ export default function GameHistory() {
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Date</TableCell>
+                    <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Start Time</TableCell>
+                    <TableCell sx={{ color: GREEN, fontWeight: 700 }}>End Time</TableCell>
                     <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Team</TableCell>
                     <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Opponent</TableCell>
                     <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Type</TableCell>
@@ -197,6 +226,16 @@ export default function GameHistory() {
                     <TableRow key={game._id}>
                       <TableCell sx={{ color: GREEN }}>
                         {new Date(game.gameDate).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell sx={{ color: GREEN }}>
+                        {game.startTime
+                          ? new Date(game.startTime).toLocaleTimeString()
+                          : "—"}
+                      </TableCell>
+                      <TableCell sx={{ color: GREEN }}>
+                        {game.endTime
+                          ? new Date(game.endTime).toLocaleTimeString()
+                          : "—"}
                       </TableCell>
                       <TableCell sx={{ color: GREEN }}>{game.teamName}</TableCell>
                       <TableCell sx={{ color: GREEN }}>{game.opponentTeamName}</TableCell>
@@ -280,5 +319,6 @@ export default function GameHistory() {
         </Paper>
       </Container>
     </Box>
+    </>
   );
 }

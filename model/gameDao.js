@@ -64,6 +64,11 @@ const GameSchema = new mongoose.Schema({
     min: 0
   },
 
+  clockStartedAt: { type: Date, default: null },
+
+  startTime: Date,
+  endTime: Date,
+
   result: String,
 
   dateCreated: { type: Date, default: Date.now },

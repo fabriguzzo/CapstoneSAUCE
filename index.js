@@ -109,6 +109,7 @@ gamesRouter.get('/:id', authenticate, requireApproved, gameController.getOne);
 gamesRouter.post('/', authenticate, requireRole('coach'), gameController.create);
 gamesRouter.put('/:id/score', authenticate, requireRole('coach'), gameController.updateScore);
 gamesRouter.put('/:id/finish', authenticate, requireRole('coach'), gameController.finishGame);
+gamesRouter.put('/:id/live', authenticate, requireApproved, gameController.updateLiveState);
 gamesRouter.put('/:id', authenticate, requireRole('coach'), gameController.updateGameInfo);
 gamesRouter.delete('/:id', authenticate, requireRole('coach'), gameController.deleteOne);
 gamesRouter.delete('/', authenticate, requireRole('coach'), gameController.deleteAll);
@@ -117,6 +118,7 @@ app.use('/api/games', gamesRouter);
 // --- Stats routes (all require approved) ---
 const statsRouter = express.Router();
 statsRouter.get('/history', authenticate, requireApproved, statTrackerController.getHistory);
+statsRouter.get('/history/final', authenticate, requireApproved, statTrackerController.getFinalStatsForGames);
 statsRouter.get('/history/game/:gameId', authenticate, requireApproved, statTrackerController.getGameHistory);
 statsRouter.get('/history/player', authenticate, requireApproved, statTrackerController.getPlayerHistory);
 statsRouter.get('/', authenticate, requireApproved, statTrackerController.getAll);

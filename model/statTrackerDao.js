@@ -174,3 +174,34 @@ exports.getGameHistory = async (gameId) => {
     .sort({ gameSecondsElapsed: 1, timestamp: 1 })
     .lean();
 };
+
+// Get the final (latest) stat snapshot per player for each of multiple games
+exports.getFinalStatsForGames = async (gameIds) => {
+  const objectIds = gameIds
+    .filter(id => mongoose.Types.ObjectId.isValid(id))
+    .map(id => new mongoose.Types.ObjectId(id));
+
+  if (objectIds.length === 0) return [];
+
+  return await StatHistory.aggregate([
+    { $match: { gameId: { $in: objectIds } } },
+    { $sort: { gameSecondsElapsed: 1, timestamp: 1 } },
+    {
+      $group: {
+        _id: { gameId: '$gameId', playerId: '$playerId' },
+        gameId: { $last: '$gameId' },
+        teamId: { $last: '$teamId' },
+        playerId: { $last: '$playerId' },
+        goals: { $last: '$goals' },
+        assists: { $last: '$assists' },
+        shots: { $last: '$shots' },
+        hits: { $last: '$hits' },
+        pim: { $last: '$pim' },
+        plusMinus: { $last: '$plusMinus' },
+        saves: { $last: '$saves' },
+        goalsAgainst: { $last: '$goalsAgainst' },
+      }
+    },
+    { $project: { _id: 0 } }
+  ]);
+};

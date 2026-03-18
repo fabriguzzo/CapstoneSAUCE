@@ -189,13 +189,16 @@ exports.finishGame = async function (req, res) {
     else if (them > us) result = 'Loss';
     else result = 'Tie';
 
+    const now = new Date();
     const finishedGame = await dao.update(id, {
       score: { us, them },
       result,
       status: 'final',
       currentPeriod: req.body.currentPeriod ? Number(req.body.currentPeriod) : 3,
       clockSecondsRemaining: 0,
-      dateFinished: new Date()
+      clockStartedAt: null,
+      endTime: now,
+      dateFinished: now
     });
 
     if (!finishedGame) {
@@ -298,6 +301,7 @@ exports.deleteAll = async function (req, res) {
     console.error('Error deleting all games:', err);
     res.status(500).json({ error: 'Failed to delete games' });
   }
+};
 
 exports.updateLiveState = async function (req, res) {
   try {
@@ -328,6 +332,27 @@ exports.updateLiveState = async function (req, res) {
       update.clockSecondsRemaining = seconds;
     }
 
+    // Handle clockStartedAt for persistent clock across refreshes
+    if (typeof req.body.clockStartedAt !== 'undefined') {
+      if (req.body.clockStartedAt === null) {
+        update.clockStartedAt = null;
+      } else {
+        const ts = new Date(req.body.clockStartedAt);
+        if (Number.isNaN(ts.getTime())) {
+          return res.status(400).json({ error: 'Invalid clockStartedAt timestamp' });
+        }
+        update.clockStartedAt = ts;
+      }
+    }
+
+    // Set startTime on first transition to live
+    if (update.status === 'live') {
+      const existing = await dao.read(id);
+      if (existing && !existing.startTime) {
+        update.startTime = new Date();
+      }
+    }
+
     const updatedGame = await dao.update(id, update);
 
     if (!updatedGame) {
@@ -335,11 +360,10 @@ exports.updateLiveState = async function (req, res) {
     }
 
     res.status(200).json(updatedGame);
-    }catch (err) {
-      console.error('Error updating live state:', err);
-      res.status(500).json({ error: 'Failed to update live state' });
-    }
-  };
+  } catch (err) {
+    console.error('Error updating live state:', err);
+    res.status(500).json({ error: 'Failed to update live state' });
+  }
 };
 
 

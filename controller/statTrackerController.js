@@ -198,7 +198,8 @@ exports.deleteAll = async function (req, res) {
 // Bulk save / upsert 15 lines (recommended for your UI)
 exports.bulkSave = async function (req, res) {
   try {
-    const { gameId, teamId, lines } = req.body;
+    const { gameId, teamId, lines, historyMeta: rawMeta } = req.body;
+    const historyMeta = rawMeta || {};
 
     if (!gameId) return res.status(400).json({ error: 'Game ID is required' });
     if (!teamId) return res.status(400).json({ error: 'Team ID is required' });
@@ -293,5 +294,22 @@ exports.getGameHistory = async function (req, res) {
   } catch (err) {
     console.error('Error fetching game stat history:', err);
     return res.status(500).json({ error: 'Failed to retrieve game stat history' });
+  }
+};
+
+// Get final stats for multiple games (for opponent overview)
+exports.getFinalStatsForGames = async function (req, res) {
+  try {
+    const { gameIds } = req.query;
+    if (!gameIds) return res.status(400).json({ error: 'gameIds query parameter is required' });
+
+    const ids = gameIds.split(',').map(id => id.trim()).filter(Boolean);
+    if (ids.length === 0) return res.status(400).json({ error: 'At least one game ID is required' });
+
+    const finalStats = await dao.getFinalStatsForGames(ids);
+    return res.status(200).json(finalStats);
+  } catch (err) {
+    console.error('Error fetching multi-game final stats:', err);
+    return res.status(500).json({ error: 'Failed to retrieve multi-game stats' });
   }
 };

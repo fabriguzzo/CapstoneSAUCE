@@ -24,6 +24,7 @@ import {
   Tooltip,
 } from "recharts";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useAuthFetch } from "../hooks/useAuthFetch";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
 const PERIOD_LENGTH_SECONDS = 20 * 60;
@@ -43,6 +44,8 @@ interface Game {
   status?: "scheduled" | "live" | "intermission" | "final";
   currentPeriod?: number;
   clockSecondsRemaining?: number;
+  startTime?: string;
+  endTime?: string;
 }
 
 interface StatHistoryEntry {
@@ -130,6 +133,7 @@ export default function GameStats() {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const authFetch = useAuthFetch();
 
   const isLiveMode = location.pathname.includes("/live");
 
@@ -146,15 +150,23 @@ export default function GameStats() {
 
   async function fetchData() {
     try {
-      const gameRes = await fetch(`${API_BASE_URL}/api/games/${gameId}`);
+      const gameRes = await authFetch(`${API_BASE_URL}/api/games/${gameId}`);
       const gameData = await gameRes.json();
       setGame(gameData);
 
-      const playersRes = await fetch(`${API_BASE_URL}/api/players?teamId=${gameData.teamId}`);
+      if (!gameData.teamId) {
+        console.error("Game has no teamId");
+        return;
+      }
+
+      const [playersRes, historyRes] = await Promise.all([
+        authFetch(`${API_BASE_URL}/api/players?teamId=${gameData.teamId}`),
+        authFetch(`${API_BASE_URL}/api/stats/history/game/${gameId}`),
+      ]);
+
       const playersData = await playersRes.json();
       setPlayers(Array.isArray(playersData) ? playersData : []);
 
-      const historyRes = await fetch(`${API_BASE_URL}/api/stats/history/game/${gameId}`);
       const historyData = await historyRes.json();
       setStatHistory(Array.isArray(historyData) ? historyData : []);
     } catch (err) {
@@ -348,6 +360,12 @@ export default function GameStats() {
             }}
           >
             {game.gameType} vs {game.opponent?.teamName || "Opponent"}
+            {game.startTime && (
+              <> · Started: {new Date(game.startTime).toLocaleTimeString()}</>
+            )}
+            {game.endTime && (
+              <> · Ended: {new Date(game.endTime).toLocaleTimeString()}</>
+            )}
           </Typography>
         )}
 

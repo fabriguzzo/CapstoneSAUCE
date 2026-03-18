@@ -35,6 +35,10 @@ type Game = {
   status?: "scheduled" | "live" | "intermission" | "final";
   currentPeriod?: number;
   clockSecondsRemaining?: number;
+  clockStartedAt?: string | null;
+  startTime?: string;
+  endTime?: string;
+  score?: { us?: number; them?: number };
 };
 
 type Player = {
@@ -169,6 +173,7 @@ export default function StatTrackerPage() {
   const [currentPeriod, setCurrentPeriod] = useState<number>(1);
   const [clockSecondsRemaining, setClockSecondsRemaining] = useState<number>(PERIOD_LENGTH_SECONDS);
   const [isClockRunning, setIsClockRunning] = useState(false);
+  const [endingGame, setEndingGame] = useState(false);
 
   useEffect(() => {
     if (!isClockRunning) return;
@@ -309,11 +314,24 @@ export default function StatTrackerPage() {
 
   const selectedGame = useMemo(() => games.find((g) => g._id === gameId), [games, gameId]);
 
+  // Restore clock state from backend on game selection
   useEffect(() => {
     if (!selectedGame) return;
 
     setCurrentPeriod(selectedGame.currentPeriod ?? 1);
-    setClockSecondsRemaining(selectedGame.clockSecondsRemaining ?? PERIOD_LENGTH_SECONDS);
+
+    if (selectedGame.clockStartedAt && selectedGame.status === 'live') {
+      // Clock was running — recalculate remaining time
+      const startedAt = new Date(selectedGame.clockStartedAt).getTime();
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      const stored = selectedGame.clockSecondsRemaining ?? PERIOD_LENGTH_SECONDS;
+      const remaining = Math.max(0, stored - elapsed);
+      setClockSecondsRemaining(remaining);
+      setIsClockRunning(remaining > 0);
+    } else {
+      setClockSecondsRemaining(selectedGame.clockSecondsRemaining ?? PERIOD_LENGTH_SECONDS);
+      setIsClockRunning(false);
+    }
   }, [selectedGame]);
 
   const sortedPlayers = useMemo(() => [...players].sort((a, b) => a.number - b.number), [players]);
@@ -336,6 +354,79 @@ export default function StatTrackerPage() {
 
   const prevPage = () => setPageIndex((v) => Math.max(0, v - 1));
   const nextPage = () => setPageIndex((v) => Math.min(totalPages - 1, v + 1));
+
+  const toggleClock = async () => {
+    if (!gameId) return;
+    if (isClockRunning) {
+      // Pausing — save remaining seconds to backend, clear clockStartedAt
+      setIsClockRunning(false);
+      try {
+        await authFetch(`${API.games}/${gameId}/live`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status: "live",
+            clockSecondsRemaining: clockSecondsRemaining,
+            clockStartedAt: null,
+            currentPeriod,
+          }),
+        });
+      } catch (e) {
+        console.error("Failed to save paused clock state", e);
+      }
+    } else {
+      // Starting — save clockStartedAt and current remaining seconds to backend
+      const now = new Date().toISOString();
+      setIsClockRunning(true);
+      try {
+        await authFetch(`${API.games}/${gameId}/live`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status: "live",
+            clockSecondsRemaining: clockSecondsRemaining,
+            clockStartedAt: now,
+            currentPeriod,
+          }),
+        });
+      } catch (e) {
+        console.error("Failed to save clock start state", e);
+      }
+    }
+  };
+
+  const endGame = async () => {
+    if (!gameId || !selectedGame) return;
+    setEndingGame(true);
+    setMsg(null);
+    try {
+      const res = await authFetch(`${API.games}/${gameId}/finish`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          us: selectedGame.score?.us ?? 0,
+          them: selectedGame.score?.them ?? 0,
+          currentPeriod,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || "Failed to end game");
+      }
+      setIsClockRunning(false);
+      setClockSecondsRemaining(0);
+      // Refresh game list to reflect new status
+      const gRes = await authFetch(`${API.games}?teamId=${encodeURIComponent(teamId)}`);
+      const gData = await gRes.json();
+      setGames(Array.isArray(gData) ? gData : []);
+      setMsg({ type: "success", text: "Game ended and saved to history!" });
+    } catch (e: any) {
+      console.error(e);
+      setMsg({ type: "error", text: e.message || "Failed to end game." });
+    } finally {
+      setEndingGame(false);
+    }
+  };
 
   const onTeamChange = (e: SelectChangeEvent) => setTeamId(e.target.value);
   const onGameChange = (e: SelectChangeEvent) => setGameId(e.target.value);
@@ -611,7 +702,8 @@ export default function StatTrackerPage() {
 
                   <Button
                     variant="contained"
-                    onClick={() => setIsClockRunning((v) => !v)}
+                    onClick={toggleClock}
+                    disabled={selectedGame?.status === 'final'}
                     sx={{ bgcolor: GREEN, fontWeight: 900 }}
                   >
                     {isClockRunning ? "Pause Clock" : "Start Clock"}
@@ -623,6 +715,19 @@ export default function StatTrackerPage() {
                     sx={{ borderColor: GREEN, color: GREEN, fontWeight: 900 }}
                   >
                     Reset Period
+                  </Button>
+
+                  <Button
+                    variant="contained"
+                    onClick={endGame}
+                    disabled={endingGame || selectedGame?.status === 'final'}
+                    sx={{
+                      bgcolor: "#b71c1c",
+                      fontWeight: 900,
+                      "&:hover": { bgcolor: "#8b0000" },
+                    }}
+                  >
+                    {endingGame ? "Ending…" : "End Game"}
                   </Button>
                 </Stack>
               </Stack>
