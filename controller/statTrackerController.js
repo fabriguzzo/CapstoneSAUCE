@@ -259,6 +259,23 @@ exports.getPlayerHistory = async function (req, res) {
   }
 };
 
+// Get final stats for multiple games (for opponent overview)
+exports.getFinalStatsForGames = async function (req, res) {
+  try {
+    const { gameIds } = req.query;
+    if (!gameIds) return res.status(400).json({ error: 'gameIds query parameter is required' });
+
+    const ids = gameIds.split(',').map(id => id.trim()).filter(Boolean);
+    if (ids.length === 0) return res.status(400).json({ error: 'No valid game IDs provided' });
+
+    const stats = await dao.getFinalStatsForGames(ids);
+    return res.status(200).json(stats);
+  } catch (err) {
+    console.error('Error fetching final stats for games:', err);
+    return res.status(500).json({ error: 'Failed to retrieve final stats' });
+  }
+};
+
 // Get history for an entire game
 exports.getGameHistory = async function (req, res) {
   try {
