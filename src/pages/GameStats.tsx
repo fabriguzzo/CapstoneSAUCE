@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
   Container,
@@ -12,6 +12,8 @@ import {
   CircularProgress,
   Chip,
   Button,
+  LinearProgress,
+  Modal,
 } from "@mui/material";
 import {
   CartesianGrid,
@@ -25,6 +27,9 @@ import {
 } from "recharts";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useAuthFetch } from "../hooks/useAuthFetch";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
+import { PictureAsPdf as PdfIcon } from "@mui/icons-material";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
 const PERIOD_LENGTH_SECONDS = 20 * 60;
@@ -146,8 +151,10 @@ export default function GameStats() {
   const [selectedPlayers, setSelectedPlayers] = useState<string[]>([]);
   const [selectedStats, setSelectedStats] = useState<string[]>(["goals", "assists", "shots", "hits"]);
   const [timeRangeStart, setTimeRangeStart] = useState<number | "">("");
-  const [timeRangeEnd, setTimeRangeEnd] = useState<number | "">("");
-
+  const [timeRangeEnd, setTimeRangeEnd] = useState<number | "">("");  const [teamName, setTeamName] = useState<string>("");
+  const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState({ current: 0, total: 0 });
+  const pdfContentRef = useRef<HTMLDivElement>(null);
   async function fetchData() {
     try {
       const gameRes = await authFetch(`${API_BASE_URL}/api/games/${gameId}`);
@@ -159,9 +166,10 @@ export default function GameStats() {
         return;
       }
 
-      const [playersRes, historyRes] = await Promise.all([
+      const [playersRes, historyRes, teamRes] = await Promise.all([
         authFetch(`${API_BASE_URL}/api/players?teamId=${gameData.teamId}`),
         authFetch(`${API_BASE_URL}/api/stats/history/game/${gameId}`),
+        authFetch(`${API_BASE_URL}/api/teams/${gameData.teamId}`),
       ]);
 
       const playersData = await playersRes.json();
@@ -169,6 +177,9 @@ export default function GameStats() {
 
       const historyData = await historyRes.json();
       setStatHistory(Array.isArray(historyData) ? historyData : []);
+
+      const teamData = await teamRes.json();
+      setTeamName(teamData.name || "Team");
     } catch (err) {
       console.error("Error fetching data:", err);
     } finally {
@@ -289,6 +300,61 @@ export default function GameStats() {
     return series;
   }, [filteredHistory, viewMode, selectedPlayers, players]);
 
+  const pdfTeamChartData = useMemo(() => {
+    if (sortedHistory.length === 0) return [];
+    const snapshotsByPlayer: Record<string, Record<string, number>> = {};
+    const series: Array<Record<string, string | number>> = [];
+    sortedHistory.forEach((entry) => {
+      const playerId = String(entry.playerId);
+      snapshotsByPlayer[playerId] = {};
+      STAT_FIELDS.forEach((stat) => {
+        snapshotsByPlayer[playerId][stat.key] =
+          Number(entry[stat.key as keyof StatHistoryEntry]) || 0;
+      });
+      const totals: Record<string, number> = {};
+      STAT_FIELDS.forEach((stat) => {
+        totals[stat.key] = 0;
+      });
+      Object.values(snapshotsByPlayer).forEach((snapshot) => {
+        STAT_FIELDS.forEach((stat) => {
+          totals[stat.key] += snapshot[stat.key] || 0;
+        });
+      });
+      series.push({
+        gameSecondsElapsed: entry.gameSecondsElapsed ?? 0,
+        label: formatPeriodClock(entry.period ?? 1, entry.clockSecondsRemaining ?? 1200),
+        ...totals,
+      });
+    });
+    return series;
+  }, [sortedHistory]);
+
+  const pdfPlayerChartData = useMemo(() => {
+    return players
+      .map((player) => {
+        const playerHistory = sortedHistory.filter(
+          (e) => e.playerId === player._id
+        );
+        const data = playerHistory.map((entry) => ({
+          gameSecondsElapsed: entry.gameSecondsElapsed ?? 0,
+          label: formatPeriodClock(
+            entry.period ?? 1,
+            entry.clockSecondsRemaining ?? 1200
+          ),
+          goals: entry.goals ?? 0,
+          assists: entry.assists ?? 0,
+          shots: entry.shots ?? 0,
+          hits: entry.hits ?? 0,
+          pim: entry.pim ?? 0,
+          plusMinus: entry.plusMinus ?? 0,
+          saves: entry.saves ?? 0,
+          goalsAgainst: entry.goalsAgainst ?? 0,
+        }));
+        return { player, data };
+      })
+      .filter(({ data }) => data.length > 0);
+  }, [sortedHistory, players]);
+
   const handlePlayerToggle = (playerId: string) => {
     setSelectedPlayers((prev) =>
       prev.includes(playerId)
@@ -304,6 +370,70 @@ export default function GameStats() {
         : [...prev, statKey]
     );
   };
+
+  async function handleDownloadPdf() {
+    setIsPdfGenerating(true);
+
+    const container = pdfContentRef.current;
+    if (!container) {
+      setIsPdfGenerating(false);
+      return;
+    }
+
+    try {
+      const sections =
+        container.querySelectorAll<HTMLElement>(".pdf-page");
+      const total = sections.length;
+      setPdfProgress({ current: 0, total });
+
+      const pdf = new jsPDF("landscape", "mm", "a4");
+      const pageWidth = 297;
+      const pageHeight = 210;
+
+      for (let i = 0; i < total; i++) {
+        if (i > 0) pdf.addPage();
+
+        // Yield to the UI so the progress bar updates
+        await new Promise<void>((r) => setTimeout(r, 0));
+
+        const canvas = await html2canvas(sections[i], {
+          scale: 1.5,
+          backgroundColor: "#fff2d1",
+          useCORS: true,
+          logging: false,
+        });
+
+        const imgData = canvas.toDataURL("image/jpeg", 0.92);
+        const ratio = canvas.width / canvas.height;
+        let imgWidth = pageWidth;
+        let imgHeight = imgWidth / ratio;
+
+        if (imgHeight > pageHeight) {
+          imgHeight = pageHeight;
+          imgWidth = imgHeight * ratio;
+        }
+
+        const x = (pageWidth - imgWidth) / 2;
+        const y = (pageHeight - imgHeight) / 2;
+        pdf.addImage(imgData, "JPEG", x, y, imgWidth, imgHeight);
+
+        setPdfProgress({ current: i + 1, total });
+      }
+
+      const dateStr = game
+        ? new Date(game.gameDate)
+            .toLocaleDateString()
+            .replace(/\//g, "-")
+        : "game";
+      const opponent = game?.opponent?.teamName || "opponent";
+      pdf.save(`Game_Stats_vs_${opponent}_${dateStr}.pdf`);
+    } catch (err) {
+      console.error("Error generating PDF:", err);
+    } finally {
+      setIsPdfGenerating(false);
+      setPdfProgress({ current: 0, total: 0 });
+    }
+  }
 
   const timeOptions = useMemo(() => uniqueTimeOptions(sortedHistory), [sortedHistory]);
 
@@ -416,7 +546,72 @@ export default function GameStats() {
             boxShadow: "0 10px 30px rgba(0,0,0,.12)",
           }}
         >
-          <Typography sx={{ fontWeight: 900, color: GREEN, mb: 2 }}>Options</Typography>
+          <Stack
+            direction="row"
+            justifyContent="space-between"
+            alignItems="center"
+            sx={{ mb: 2 }}
+          >
+            <Typography sx={{ fontWeight: 900, color: GREEN }}>Options</Typography>
+            <Button
+              variant="contained"
+              startIcon={isPdfGenerating ? <CircularProgress size={18} sx={{ color: CREAM }} /> : <PdfIcon />}
+              onClick={handleDownloadPdf}
+              disabled={isPdfGenerating || statHistory.length === 0}
+              sx={{
+                bgcolor: GREEN,
+                color: CREAM,
+                fontWeight: 700,
+                "&:hover": { bgcolor: DARK_GREEN },
+                "&:disabled": {
+                  bgcolor: "rgba(0,95,2,0.3)",
+                  color: "rgba(255,242,209,0.5)",
+                },
+              }}
+            >
+              {isPdfGenerating
+                ? `Rendering ${pdfProgress.current}/${pdfProgress.total}...`
+                : "Download as PDF"}
+            </Button>
+
+            <Modal open={isPdfGenerating}>
+              <Box
+                sx={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  transform: "translate(-50%, -50%)",
+                  bgcolor: "white",
+                  borderRadius: 3,
+                  boxShadow: 24,
+                  p: 4,
+                  minWidth: 340,
+                  textAlign: "center",
+                }}
+              >
+                <PdfIcon sx={{ fontSize: 40, color: GREEN, mb: 1 }} />
+                <Typography sx={{ fontWeight: 800, color: GREEN, fontSize: 20, mb: 1 }}>
+                  Generating PDF Report
+                </Typography>
+                <Typography sx={{ color: GREEN, mb: 2, fontSize: 14 }}>
+                  Rendering page {pdfProgress.current} of {pdfProgress.total}...
+                </Typography>
+                <LinearProgress
+                  variant="determinate"
+                  value={pdfProgress.total > 0 ? (pdfProgress.current / pdfProgress.total) * 100 : 0}
+                  sx={{
+                    height: 10,
+                    borderRadius: 5,
+                    bgcolor: "rgba(0,95,2,0.1)",
+                    "& .MuiLinearProgress-bar": { bgcolor: GREEN, borderRadius: 5 },
+                  }}
+                />
+                <Typography sx={{ color: GREEN, mt: 1.5, fontSize: 12, opacity: 0.7 }}>
+                  Please wait — this may take a moment for large rosters
+                </Typography>
+              </Box>
+            </Modal>
+          </Stack>
 
           <Stack direction={{ xs: "column", md: "row" }} spacing={3}>
             <FormControl fullWidth sx={{ minWidth: 180 }}>
@@ -595,6 +790,203 @@ export default function GameStats() {
             </ResponsiveContainer>
           )}
         </Paper>
+
+        <Box
+          ref={pdfContentRef}
+          sx={{
+            position: "fixed",
+            left: "-9999px",
+            top: 0,
+            zIndex: -1,
+            pointerEvents: "none",
+          }}
+        >
+            {/* Team Totals Page */}
+            <Box
+              className="pdf-page"
+              sx={{ width: 1200, bgcolor: CREAM, p: 4 }}
+            >
+              <Typography
+                sx={{
+                  fontWeight: 900,
+                  fontSize: 36,
+                  color: GREEN,
+                  textAlign: "center",
+                  fontFamily: "Oswald, sans-serif",
+                  mb: 1,
+                }}
+              >
+                Game Stats Report
+              </Typography>
+              <Typography
+                sx={{
+                  fontWeight: 700,
+                  fontSize: 22,
+                  color: GREEN,
+                  textAlign: "center",
+                  mb: 0.5,
+                }}
+              >
+                {game?.gameType} vs{" "}
+                {game?.opponent?.teamName || "Opponent"} &mdash;{" "}
+                {game
+                  ? new Date(game.gameDate).toLocaleDateString()
+                  : ""}
+              </Typography>
+              {(game?.startTime || game?.endTime) && (
+                <Typography
+                  sx={{
+                    fontWeight: 600,
+                    fontSize: 16,
+                    color: GREEN,
+                    textAlign: "center",
+                    mb: 2,
+                    opacity: 0.8,
+                  }}
+                >
+                  {game?.startTime &&
+                    `Started: ${new Date(
+                      game.startTime
+                    ).toLocaleTimeString()}`}
+                  {game?.startTime && game?.endTime && " | "}
+                  {game?.endTime &&
+                    `Ended: ${new Date(
+                      game.endTime
+                    ).toLocaleTimeString()}`}
+                </Typography>
+              )}
+              <Typography
+                sx={{
+                  fontWeight: 800,
+                  fontSize: 20,
+                  color: GREEN,
+                  mb: 1,
+                }}
+              >
+                {teamName} &mdash; Team Totals
+              </Typography>
+              <Box
+                sx={{ bgcolor: DARK_GREEN, borderRadius: 2, p: 2 }}
+              >
+                <LineChart
+                  width={1120}
+                  height={500}
+                  data={pdfTeamChartData}
+                >
+                  <CartesianGrid
+                    stroke={CREAM}
+                    strokeDasharray="5 5"
+                    strokeOpacity={0.3}
+                  />
+                  <XAxis
+                    dataKey="gameSecondsElapsed"
+                    stroke={CREAM}
+                    tick={{ fill: CREAM, fontWeight: 600 }}
+                  />
+                  <YAxis
+                    stroke={CREAM}
+                    tick={{ fill: CREAM, fontWeight: 600 }}
+                    tickCount={10}
+                  />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ color: CREAM }} />
+                  {STAT_FIELDS.map((stat) => (
+                    <Line
+                      key={stat.key}
+                      type="monotone"
+                      dataKey={stat.key}
+                      stroke={stat.color}
+                      strokeWidth={3}
+                      dot={{
+                        r: 4,
+                        fill: stat.color,
+                        strokeWidth: 2,
+                        stroke: CREAM,
+                      }}
+                      name={stat.label}
+                      isAnimationActive={false}
+                    />
+                  ))}
+                </LineChart>
+              </Box>
+            </Box>
+
+            {/* Individual Player Pages */}
+            {pdfPlayerChartData.map(({ player, data }) => (
+              <Box
+                key={player._id}
+                className="pdf-page"
+                sx={{ width: 1200, bgcolor: CREAM, p: 4 }}
+              >
+                <Typography
+                  sx={{
+                    fontWeight: 900,
+                    fontSize: 28,
+                    color: GREEN,
+                    fontFamily: "Oswald, sans-serif",
+                    mb: 0.5,
+                  }}
+                >
+                  #{player.number} {player.name}
+                </Typography>
+                <Typography
+                  sx={{
+                    fontWeight: 600,
+                    fontSize: 14,
+                    color: GREEN,
+                    mb: 1,
+                    opacity: 0.7,
+                  }}
+                >
+                  {game?.gameType} vs{" "}
+                  {game?.opponent?.teamName || "Opponent"} &mdash;{" "}
+                  {game
+                    ? new Date(game.gameDate).toLocaleDateString()
+                    : ""}
+                </Typography>
+                <Box
+                  sx={{ bgcolor: DARK_GREEN, borderRadius: 2, p: 2 }}
+                >
+                  <LineChart width={1120} height={550} data={data}>
+                    <CartesianGrid
+                      stroke={CREAM}
+                      strokeDasharray="5 5"
+                      strokeOpacity={0.3}
+                    />
+                    <XAxis
+                      dataKey="gameSecondsElapsed"
+                      stroke={CREAM}
+                      tick={{ fill: CREAM, fontWeight: 600 }}
+                    />
+                    <YAxis
+                      stroke={CREAM}
+                      tick={{ fill: CREAM, fontWeight: 600 }}
+                      tickCount={10}
+                    />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ color: CREAM }} />
+                    {STAT_FIELDS.map((stat) => (
+                      <Line
+                        key={stat.key}
+                        type="monotone"
+                        dataKey={stat.key}
+                        stroke={stat.color}
+                        strokeWidth={3}
+                        dot={{
+                          r: 4,
+                          fill: stat.color,
+                          strokeWidth: 2,
+                          stroke: CREAM,
+                        }}
+                        name={stat.label}
+                        isAnimationActive={false}
+                      />
+                    ))}
+                  </LineChart>
+                </Box>
+              </Box>
+            ))}
+          </Box>
       </Container>
     </Box>
   );
