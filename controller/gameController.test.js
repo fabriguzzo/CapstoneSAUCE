@@ -753,15 +753,20 @@ describe("gameController Module", () => {
         body: { status: " LIVE ", currentPeriod: "2", clockSecondsRemaining: "45" },
       };
       const res = makeRes();
+      dao.read.mockResolvedValue({ _id: "g1", startTime: null });
       dao.update.mockResolvedValue({ _id: "g1", status: "live" });
 
       await controller.updateLiveState(req, res);
 
-      expect(dao.update).toHaveBeenCalledWith("g1", {
-        status: "live",
-        currentPeriod: 2,
-        clockSecondsRemaining: 45,
-      });
+      expect(dao.read).toHaveBeenCalledWith("g1");
+      expect(dao.update).toHaveBeenCalledWith(
+        "g1",
+        expect.objectContaining({
+          status: "live",
+          currentPeriod: 2,
+          clockSecondsRemaining: 45,
+        })
+      );
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ _id: "g1", status: "live" });
     });
@@ -803,6 +808,7 @@ describe("gameController Module", () => {
     test("404: game not found", async () => {
       const req = { params: { id: "missing" }, body: { status: "live" } };
       const res = makeRes();
+      dao.read.mockResolvedValue(null);
       dao.update.mockResolvedValue(null);
 
       await controller.updateLiveState(req, res);
