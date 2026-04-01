@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt');
 const userDao = require('../model/userDao');
 const teamDao = require('../model/teamDao');
+const playerDao = require('../model/playerDao');
 const emailService = require('../services/emailService');
 
 const SALT_ROUNDS = 12;
@@ -95,7 +96,12 @@ exports.approveMember = async function (req, res) {
       return res.status(403).json({ error: 'You can only manage members of your own team' });
     }
 
-    const updated = await userDao.updateStatus(userId, 'approved');
+    let updated = await userDao.updateStatus(userId, 'approved');
+
+    const matchingPlayers = await playerDao.findByTeamAndName(updated.teamId, updated.name) || [];
+    if (!updated.playerId && matchingPlayers.length === 1) {
+      updated = await userDao.updatePlayerLink(userId, matchingPlayers[0]._id);
+    }
 
     try {
       const team = await teamDao.read(req.user.teamId);

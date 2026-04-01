@@ -1,4 +1,9 @@
 const dao = require('../model/playerDao.js');
+const userDao = require('../model/userDao');
+
+function normalizeName(value) {
+  return String(value || '').trim().toLowerCase();
+}
 
 exports.create = async function (req, res) {
   try {
@@ -34,13 +39,34 @@ exports.create = async function (req, res) {
 exports.getAll = async function (req, res) {
   try {
     const filter = {};
+    const shouldFilterToPlayersWithAccounts = req.query.hasAccount === 'true';
 
     if (req.query.teamId) {
       filter.teamId = req.query.teamId;
     }
 
     const players = await dao.readAll(filter);
-    res.status(200).json(players);
+
+    if (!shouldFilterToPlayersWithAccounts || !filter.teamId) {
+      return res.status(200).json(players);
+    }
+
+    const approvedMembers = await userDao.findApprovedMembersByTeam(filter.teamId);
+    const linkedPlayerIds = new Set(
+      approvedMembers
+        .map((member) => member.playerId?.toString())
+        .filter(Boolean)
+    );
+    const memberNames = new Set(
+      approvedMembers
+        .map((member) => normalizeName(member.name))
+        .filter(Boolean)
+    );
+
+    const playersWithAccounts = players.filter((player) => (
+      linkedPlayerIds.has(player._id.toString()) || memberNames.has(normalizeName(player.name))
+    ));
+    res.status(200).json(playersWithAccounts);
   } catch (err) {
     console.error('Error fetching players:', err);
     res.status(500).json({ error: 'Failed to retrieve players' });

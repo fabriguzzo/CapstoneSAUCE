@@ -1,10 +1,49 @@
-import { Box, Container, Typography, Button } from '@mui/material';
+import { useEffect, useState } from 'react';
+import { Box, Container, Typography, Button, Badge } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { getUnreadNotificationStatus } from '../services/notificationService';
 
 export default function Navbar() {
   const navigate = useNavigate();
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, token, isAuthenticated, logout } = useAuth();
+  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const refreshUnreadStatus = () => {
+      if (!token || user?.role !== 'member' || user?.status !== 'approved') {
+        setHasUnreadNotifications(false);
+        return;
+      }
+
+      getUnreadNotificationStatus(token)
+        .then((data) => {
+          if (isMounted) {
+            setHasUnreadNotifications(data.hasUnread);
+          }
+        })
+        .catch(() => {
+          if (isMounted) {
+            setHasUnreadNotifications(false);
+          }
+        });
+    };
+
+    if (!token || user?.role !== 'member' || user?.status !== 'approved') {
+      setHasUnreadNotifications(false);
+      return;
+    }
+
+    refreshUnreadStatus();
+    window.addEventListener('notifications-updated', refreshUnreadStatus);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('notifications-updated', refreshUnreadStatus);
+    };
+  }, [token, user?.role, user?.status]);
 
   const handleLogout = () => {
     logout();
@@ -74,9 +113,23 @@ export default function Navbar() {
             </Button>
             {isAuthenticated ? (
               <>
-                <Button variant="text" onClick={() => navigate('/profile')} sx={{ color: 'text.primary' }}>
-                  Profile
-                </Button>
+                <Badge
+                  color="success"
+                  variant="dot"
+                  overlap="circular"
+                  invisible={!hasUnreadNotifications}
+                  anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+                  sx={{
+                    '& .MuiBadge-badge': {
+                      backgroundColor: '#2e7d32',
+                      boxShadow: '0 0 0 2px white',
+                    },
+                  }}
+                >
+                  <Button variant="text" onClick={() => navigate('/profile')} sx={{ color: 'text.primary' }}>
+                    Profile
+                  </Button>
+                </Badge>
                 <Button variant="contained" onClick={handleLogout} sx={{ bgcolor: 'primary.main' }}>
                   Logout
                 </Button>

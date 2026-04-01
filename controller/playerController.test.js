@@ -13,6 +13,10 @@ const dao = {
   deleteAll: vi.fn(),
 };
 
+const userDao = {
+  findApprovedMembersByTeam: vi.fn(),
+};
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -24,6 +28,7 @@ function loadControllerWithMockedDao() {
   const module = { exports: {} };
   const localRequire = (request) => {
     if (request === "../model/playerDao.js") return dao;
+    if (request === "../model/userDao") return userDao;
     throw new Error(`Unexpected require in playerController.test.js: ${request}`);
   };
   fn(module.exports, localRequire, module, controllerPath, path.dirname(controllerPath));
@@ -141,6 +146,27 @@ describe("playerController Module", () => {
 
       expect(dao.readAll).toHaveBeenCalledWith({ teamId: "team123" });
       expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    test("200: returns only players with approved accounts when requested", async () => {
+      const req = { query: { teamId: "team123", hasAccount: "true" } };
+      const res = makeRes();
+
+      dao.readAll.mockResolvedValue([
+        { _id: "p1", name: "John Doe", teamId: "team123" },
+        { _id: "p2", name: "No Account", teamId: "team123" },
+      ]);
+      userDao.findApprovedMembersByTeam.mockResolvedValue([
+        { _id: "u1", name: "John Doe", playerId: "p1" },
+      ]);
+
+      await controller.getAll(req, res);
+
+      expect(userDao.findApprovedMembersByTeam).toHaveBeenCalledWith("team123");
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith([
+        { _id: "p1", name: "John Doe", teamId: "team123" },
+      ]);
     });
   });
 

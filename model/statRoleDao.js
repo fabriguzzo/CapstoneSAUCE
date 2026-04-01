@@ -3,9 +3,9 @@ const mongoose = require("mongoose");
 const StatRoleSchema = new mongoose.Schema(
   {
     teamId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
-    playerId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    assigneeUserId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
 
-    // which stat this player is responsible for
+    // which stat this team member account is responsible for
     statKey: {
       type: String,
       required: true,
@@ -15,18 +15,20 @@ const StatRoleSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// one assignment per player per team
-StatRoleSchema.index({ teamId: 1, playerId: 1 }, { unique: true });
+// one assignment per stat per user account per team
+StatRoleSchema.index({ teamId: 1, assigneeUserId: 1, statKey: 1 }, { unique: true });
 
 const StatRole = mongoose.model("StatRole", StatRoleSchema);
 
 exports.readAll = async (filter = {}) => StatRole.find(filter).lean();
 
-exports.bulkUpsert = async (teamId, assignments) => {
+exports.replaceTeamAssignments = async (teamId, assignments) => {
+  await StatRole.deleteMany({ teamId });
+
   const ops = assignments.map((a) => ({
     updateOne: {
-      filter: { teamId, playerId: a.playerId },
-      update: { $set: { teamId, playerId: a.playerId, statKey: a.statKey } },
+      filter: { teamId, assigneeUserId: a.assigneeUserId, statKey: a.statKey },
+      update: { $set: { teamId, assigneeUserId: a.assigneeUserId, statKey: a.statKey } },
       upsert: true,
     },
   }));

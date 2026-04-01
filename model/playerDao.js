@@ -24,6 +24,10 @@ exports.read = async (id) => {
   return await Player.findById(id).lean();
 };
 
+exports.findByTeamAndName = async (teamId, name) => {
+  return await Player.find({ teamId, name }).sort({ number: 1 }).lean();
+};
+
 exports.update = async (id, updateData) => {
   return await Player.findByIdAndUpdate(id, updateData, { new: true }).lean();
 };

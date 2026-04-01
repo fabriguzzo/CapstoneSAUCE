@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Container, Paper, Typography, Box, Button, Avatar, Chip } from '@mui/material';
+import { Container, Paper, Typography, Box, Button, Avatar, Chip, Stack, Divider } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
+import { getNotifications, markNotificationsSeen, type NotificationItem } from '../services/notificationService';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [teamName, setTeamName] = useState('');
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   useEffect(() => {
     if (user?.teamId) {
@@ -19,6 +21,37 @@ export default function ProfilePage() {
         .catch(() => {});
     }
   }, [user?.teamId]);
+
+  useEffect(() => {
+    if (!token || user?.role !== 'member' || user?.status !== 'approved') {
+      setNotifications([]);
+      return;
+    }
+
+    let isMounted = true;
+
+    (async () => {
+      try {
+        const items = await getNotifications(token);
+        if (isMounted) {
+          setNotifications(items);
+        }
+        await markNotificationsSeen(token);
+        if (isMounted) {
+          setNotifications((current) => current.map((item) => ({ ...item, seen: true })));
+        }
+        window.dispatchEvent(new Event('notifications-updated'));
+      } catch {
+        if (isMounted) {
+          setNotifications([]);
+        }
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [token, user?.role, user?.status]);
 
   if (!user) return null;
 
@@ -80,6 +113,39 @@ export default function ProfilePage() {
             >
               Edit Profile
             </Button>
+
+            {user.role === 'member' && user.status === 'approved' && (
+              <>
+                <Divider sx={{ my: 4 }} />
+                <Box sx={{ textAlign: 'left' }}>
+                  <Typography variant="h6" sx={{ color: 'primary.main', fontWeight: 700, mb: 2 }}>
+                    Notifications
+                  </Typography>
+                  {notifications.length === 0 ? (
+                    <Typography sx={{ color: 'text.secondary' }}>
+                      No role assignment notifications yet.
+                    </Typography>
+                  ) : (
+                    <Stack spacing={1.5}>
+                      {notifications.map((notification) => (
+                        <Paper
+                          key={notification._id}
+                          variant="outlined"
+                          sx={{ p: 2, borderRadius: 3, bgcolor: notification.seen ? 'grey.50' : 'success.50' }}
+                        >
+                          <Typography sx={{ fontWeight: 600 }}>
+                            {notification.message}
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
+                            Assigned {new Date(notification.assignedAt).toLocaleString()}
+                          </Typography>
+                        </Paper>
+                      ))}
+                    </Stack>
+                  )}
+                </Box>
+              </>
+            )}
           </Paper>
         </Container>
       </Box>

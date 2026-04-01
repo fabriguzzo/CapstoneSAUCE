@@ -15,11 +15,16 @@ const userDao = {
   findByTeamAndStatus: vi.fn(),
   findByTeam: vi.fn(),
   updateStatus: vi.fn(),
+  updatePlayerLink: vi.fn(),
   deleteOne: vi.fn(),
 };
 
 const teamDao = {
   read: vi.fn(),
+};
+
+const playerDao = {
+  findByTeamAndName: vi.fn(),
 };
 
 const emailService = {
@@ -40,6 +45,7 @@ function loadControllerWithMocks() {
     if (request === "bcrypt") return bcrypt;
     if (request === "../model/userDao") return userDao;
     if (request === "../model/teamDao") return teamDao;
+    if (request === "../model/playerDao") return playerDao;
     if (request === "../services/emailService") return emailService;
     throw new Error(`Unexpected require in userController.test.js: ${request}`);
   };

@@ -9,18 +9,15 @@ import { fileURLToPath } from "url";
  */
 const dao = {
   readAll: vi.fn(),
-  bulkUpsert: vi.fn(),
+  replaceTeamAssignments: vi.fn(),
 };
 
-const playerModelMock = {
-  countDocuments: vi.fn(),
+const userDao = {
+  findApprovedMembersByIds: vi.fn(),
 };
 
-const mongooseMock = {
-  model: vi.fn((name) => {
-    if (name === "Player") return playerModelMock;
-    throw new Error(`Unexpected mongoose.model(${name})`);
-  }),
+const notificationDao = {
+  createMany: vi.fn(),
 };
 
 const __filename = fileURLToPath(import.meta.url);
@@ -36,10 +33,6 @@ function loadControllerWithMocks() {
   const module = { exports: {} };
 
   const localRequire = (request) => {
-    if (request === "mongoose") return mongooseMock;
-
-    if (request === "../model/playerDao" || request === "../model/playerDao.js") return {};
-
     if (
       request === "../model/statRoleDao" ||
       request === "../model/statRoleDao.js" ||
@@ -47,6 +40,9 @@ function loadControllerWithMocks() {
     ) {
       return dao;
     }
+
+    if (request === "../model/userDao") return userDao;
+    if (request === "../model/notificationDao") return notificationDao;
 
     throw new Error(`Unexpected require in statRoleController.test.js: ${request}`);
   };
@@ -63,7 +59,7 @@ function makeRes() {
 }
 
 function makeValidAssignment(overrides = {}) {
-  return { playerId: "p1", statKey: "goals", ...overrides };
+  return { assigneeUserId: "u1", statKey: "goals", ...overrides };
 }
 
 const controller = loadControllerWithMocks();
@@ -107,27 +103,27 @@ describe("statRoleController Module", () => {
       expect(res.status).toHaveBeenCalledWith(200);
     });
 
-    test("200: applies playerId filter", async () => {
-      const req = { query: { playerId: "p9" } };
+    test("200: applies assigneeUserId filter", async () => {
+      const req = { query: { assigneeUserId: "u9" } };
       const res = makeRes();
 
-      dao.readAll.mockResolvedValue([{ _id: "rX", playerId: "p9" }]);
+      dao.readAll.mockResolvedValue([{ _id: "rX", assigneeUserId: "u9" }]);
 
       await controller.getAll(req, res);
 
-      expect(dao.readAll).toHaveBeenCalledWith({ playerId: "p9" });
+      expect(dao.readAll).toHaveBeenCalledWith({ assigneeUserId: "u9" });
       expect(res.status).toHaveBeenCalledWith(200);
     });
 
-    test("200: applies both teamId and playerId filters", async () => {
-      const req = { query: { teamId: "t1", playerId: "p1" } };
+    test("200: applies both teamId and assigneeUserId filters", async () => {
+      const req = { query: { teamId: "t1", assigneeUserId: "u1" } };
       const res = makeRes();
 
-      dao.readAll.mockResolvedValue([{ _id: "r1", teamId: "t1", playerId: "p1" }]);
+      dao.readAll.mockResolvedValue([{ _id: "r1", teamId: "t1", assigneeUserId: "u1" }]);
 
       await controller.getAll(req, res);
 
-      expect(dao.readAll).toHaveBeenCalledWith({ teamId: "t1", playerId: "p1" });
+      expect(dao.readAll).toHaveBeenCalledWith({ teamId: "t1", assigneeUserId: "u1" });
       expect(res.status).toHaveBeenCalledWith(200);
     });
 
@@ -151,7 +147,7 @@ describe("statRoleController Module", () => {
 
       await controller.bulkSave(req, res);
 
-      expect(dao.bulkUpsert).not.toHaveBeenCalled();
+      expect(dao.replaceTeamAssignments).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ error: "teamId is required" });
     });
@@ -162,23 +158,23 @@ describe("statRoleController Module", () => {
 
       await controller.bulkSave(req, res);
 
-      expect(dao.bulkUpsert).not.toHaveBeenCalled();
+      expect(dao.replaceTeamAssignments).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ error: "assignments must be an array" });
     });
 
-    test("400: assignment missing playerId", async () => {
+    test("400: assignment missing assigneeUserId", async () => {
       const req = {
-        body: { teamId: "t1", assignments: [makeValidAssignment({ playerId: "" })] },
+        body: { teamId: "t1", assignments: [makeValidAssignment({ assigneeUserId: "" })] },
       };
       const res = makeRes();
 
       await controller.bulkSave(req, res);
 
-      expect(playerModelMock.countDocuments).not.toHaveBeenCalled();
-      expect(dao.bulkUpsert).not.toHaveBeenCalled();
+      expect(userDao.findApprovedMembersByIds).not.toHaveBeenCalled();
+      expect(dao.replaceTeamAssignments).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ error: "Each assignment needs playerId" });
+      expect(res.json).toHaveBeenCalledWith({ error: "Each assignment needs assigneeUserId" });
     });
 
     test("400: invalid statKey (missing)", async () => {
@@ -189,8 +185,8 @@ describe("statRoleController Module", () => {
 
       await controller.bulkSave(req, res);
 
-      expect(playerModelMock.countDocuments).not.toHaveBeenCalled();
-      expect(dao.bulkUpsert).not.toHaveBeenCalled();
+      expect(userDao.findApprovedMembersByIds).not.toHaveBeenCalled();
+      expect(dao.replaceTeamAssignments).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json.mock.calls[0][0].error).toMatch(/Invalid statKey/);
     });
@@ -203,70 +199,121 @@ describe("statRoleController Module", () => {
 
       await controller.bulkSave(req, res);
 
-      expect(playerModelMock.countDocuments).not.toHaveBeenCalled();
-      expect(dao.bulkUpsert).not.toHaveBeenCalled();
+      expect(userDao.findApprovedMembersByIds).not.toHaveBeenCalled();
+      expect(dao.replaceTeamAssignments).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json.mock.calls[0][0].error).toMatch(/Invalid statKey/);
     });
 
-    test("400: players do not all belong to team (count mismatch)", async () => {
+    test("400: duplicate stat assignment for the same user", async () => {
       const req = {
         body: {
           teamId: "t1",
           assignments: [
-            makeValidAssignment({ playerId: "p1", statKey: "goals" }),
-            makeValidAssignment({ playerId: "p2", statKey: "assists" }),
+            makeValidAssignment({ assigneeUserId: "u1", statKey: "goals" }),
+            makeValidAssignment({ assigneeUserId: "u1", statKey: "goals" }),
           ],
         },
       };
       const res = makeRes();
 
-      playerModelMock.countDocuments.mockResolvedValue(1);
+      await controller.bulkSave(req, res);
+
+      expect(userDao.findApprovedMembersByIds).not.toHaveBeenCalled();
+      expect(dao.replaceTeamAssignments).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: "Duplicate stat assignment for assigneeUserId u1" });
+    });
+
+    test("400: assignees must be approved members on the team", async () => {
+      const req = {
+        user: { id: "coach1" },
+        body: {
+          teamId: "t1",
+          assignments: [
+            makeValidAssignment({ assigneeUserId: "u1", statKey: "goals" }),
+            makeValidAssignment({ assigneeUserId: "u2", statKey: "assists" }),
+          ],
+        },
+      };
+      const res = makeRes();
+
+      userDao.findApprovedMembersByIds.mockResolvedValue([{ _id: "u1", name: "Chris" }]);
 
       await controller.bulkSave(req, res);
 
-      expect(playerModelMock.countDocuments).toHaveBeenCalledWith({
-        _id: { $in: ["p1", "p2"] },
-        teamId: "t1",
-      });
-      expect(dao.bulkUpsert).not.toHaveBeenCalled();
+      expect(userDao.findApprovedMembersByIds).toHaveBeenCalledWith(["u1", "u2"], "t1");
+      expect(dao.replaceTeamAssignments).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ error: "One or more players do not belong to that team" });
+      expect(res.json).toHaveBeenCalledWith({ error: "One or more assignees are not approved member accounts on that team" });
     });
 
     test("200: saves roles when valid", async () => {
       const req = {
+        user: { id: "coach1" },
         body: {
           teamId: "t1",
           assignments: [
-            makeValidAssignment({ playerId: "p1", statKey: "goals" }),
-            makeValidAssignment({ playerId: "p2", statKey: "assists" }),
+            makeValidAssignment({ assigneeUserId: "u1", statKey: "goals" }),
+            makeValidAssignment({ assigneeUserId: "u1", statKey: "assists" }),
+            makeValidAssignment({ assigneeUserId: "u2", statKey: "assists" }),
           ],
         },
       };
       const res = makeRes();
 
-      playerModelMock.countDocuments.mockResolvedValue(2);
-      dao.bulkUpsert.mockResolvedValue({ ok: 1 });
+      userDao.findApprovedMembersByIds.mockResolvedValue([
+        { _id: "u1", name: "Chris", playerId: "p1" },
+        { _id: "u2", name: "Sam", playerId: null },
+      ]);
+      dao.readAll.mockResolvedValue([]);
+      dao.replaceTeamAssignments.mockResolvedValue({ ok: 1 });
+      notificationDao.createMany.mockResolvedValue([{ _id: "n1" }]);
 
       await controller.bulkSave(req, res);
 
-      expect(playerModelMock.countDocuments).toHaveBeenCalledWith({
-        _id: { $in: ["p1", "p2"] },
-        teamId: "t1",
-      });
-      expect(dao.bulkUpsert).toHaveBeenCalledWith("t1", req.body.assignments);
+      expect(userDao.findApprovedMembersByIds).toHaveBeenCalledWith(["u1", "u2"], "t1");
+      expect(dao.readAll).toHaveBeenCalledWith({ teamId: "t1" });
+      expect(dao.replaceTeamAssignments).toHaveBeenCalledWith("t1", req.body.assignments);
+      expect(notificationDao.createMany).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            recipientUserId: "u1",
+            playerId: "p1",
+            teamId: "t1",
+            assignedByUserId: "coach1",
+            statKey: "goals",
+            seen: false,
+          }),
+          expect.objectContaining({
+            recipientUserId: "u1",
+            playerId: "p1",
+            teamId: "t1",
+            assignedByUserId: "coach1",
+            statKey: "assists",
+            seen: false,
+          }),
+          expect.objectContaining({
+            recipientUserId: "u2",
+            playerId: null,
+            teamId: "t1",
+            assignedByUserId: "coach1",
+            statKey: "assists",
+            seen: false,
+          }),
+        ])
+      );
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ message: "Roles saved", result: { ok: 1 } });
     });
 
-    test("500: Player.countDocuments throws", async () => {
+    test("500: assignee lookup throws", async () => {
       const req = {
-        body: { teamId: "t1", assignments: [makeValidAssignment({ playerId: "p1", statKey: "goals" })] },
+        body: { teamId: "t1", assignments: [makeValidAssignment({ assigneeUserId: "u1", statKey: "goals" })] },
       };
       const res = makeRes();
 
-      playerModelMock.countDocuments.mockRejectedValue(new Error("mongo fail"));
+      userDao.findApprovedMembersByIds.mockRejectedValue(new Error("mongo fail"));
 
       await controller.bulkSave(req, res);
 
@@ -276,12 +323,13 @@ describe("statRoleController Module", () => {
 
     test("500: dao.bulkUpsert throws", async () => {
       const req = {
-        body: { teamId: "t1", assignments: [makeValidAssignment({ playerId: "p1", statKey: "goals" })] },
+        body: { teamId: "t1", assignments: [makeValidAssignment({ assigneeUserId: "u1", statKey: "goals" })] },
       };
       const res = makeRes();
 
-      playerModelMock.countDocuments.mockResolvedValue(1);
-      dao.bulkUpsert.mockRejectedValue(new Error("write fail"));
+      userDao.findApprovedMembersByIds.mockResolvedValue([{ _id: "u1", name: "Chris", playerId: null }]);
+      dao.readAll.mockResolvedValue([]);
+      dao.replaceTeamAssignments.mockRejectedValue(new Error("write fail"));
 
       await controller.bulkSave(req, res);
 

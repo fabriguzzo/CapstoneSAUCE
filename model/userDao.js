@@ -7,6 +7,7 @@ const UserSchema = new mongoose.Schema({
   profilePicture: { type: String },
   role: { type: String, required: true, enum: ['coach', 'member'] },
   teamId: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
+  playerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Player' },
   status: { type: String, enum: ['pending', 'approved'], default: 'pending' },
   resetPasswordToken: { type: String },
   resetPasswordExpires: { type: Date }
@@ -54,6 +55,34 @@ exports.findCoachByTeam = async (teamId) => {
     .select('-password -resetPasswordToken -resetPasswordExpires');
 };
 
+exports.findApprovedMembersByTeam = async (teamId) => {
+  return await User.find({ teamId, role: 'member', status: 'approved' })
+    .select('-password -resetPasswordToken -resetPasswordExpires')
+    .sort({ name: 1 })
+    .lean();
+};
+
+exports.findApprovedMembersByPlayerIds = async (playerIds) => {
+  return await User.find({
+    role: 'member',
+    status: 'approved',
+    playerId: { $in: playerIds },
+  })
+    .select('-password -resetPasswordToken -resetPasswordExpires')
+    .lean();
+};
+
+exports.findApprovedMembersByIds = async (userIds, teamId) => {
+  return await User.find({
+    _id: { $in: userIds },
+    teamId,
+    role: 'member',
+    status: 'approved',
+  })
+    .select('-password -resetPasswordToken -resetPasswordExpires')
+    .lean();
+};
+
 exports.updateProfile = async (id, updateData) => {
   return await User.findByIdAndUpdate(id, updateData, { new: true })
     .select('-password -resetPasswordToken -resetPasswordExpires');
@@ -83,6 +112,11 @@ exports.updatePassword = async (id, hashedPassword) => {
 
 exports.updateStatus = async (id, status) => {
   return await User.findByIdAndUpdate(id, { status }, { new: true })
+    .select('-password -resetPasswordToken -resetPasswordExpires');
+};
+
+exports.updatePlayerLink = async (id, playerId) => {
+  return await User.findByIdAndUpdate(id, { playerId }, { new: true })
     .select('-password -resetPasswordToken -resetPasswordExpires');
 };
 

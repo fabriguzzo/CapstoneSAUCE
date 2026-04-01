@@ -109,15 +109,16 @@ describe("statRoleDao.js", () => {
     expect(rows).toEqual([{ _id: "r1" }]);
   });
 
-  test("bulkUpsert builds updateOne ops and calls bulkWrite", async () => {
+  test("replaceTeamAssignments clears existing team roles, then builds updateOne ops and calls bulkWrite", async () => {
     const teamId = "t1";
     const assignments = [
-      { playerId: "p1", statKey: "goals" },
-      { playerId: "p2", statKey: "assists" },
+      { assigneeUserId: "u1", statKey: "goals" },
+      { assigneeUserId: "u2", statKey: "assists" },
     ];
 
-    await dao.bulkUpsert(teamId, assignments);
+    await dao.replaceTeamAssignments(teamId, assignments);
 
+    expect(StatRole_spy.deleteMany).toHaveBeenCalledWith({ teamId });
     expect(StatRole_spy.bulkWrite).toHaveBeenCalledTimes(1);
 
     const [ops] = StatRole_spy.bulkWrite.mock.calls[0];
@@ -126,23 +127,24 @@ describe("statRoleDao.js", () => {
 
     expect(ops[0]).toEqual({
       updateOne: {
-        filter: { teamId, playerId: "p1" },
-        update: { $set: { teamId, playerId: "p1", statKey: "goals" } },
+        filter: { teamId, assigneeUserId: "u1", statKey: "goals" },
+        update: { $set: { teamId, assigneeUserId: "u1", statKey: "goals" } },
         upsert: true,
       },
     });
 
     expect(ops[1]).toEqual({
       updateOne: {
-        filter: { teamId, playerId: "p2" },
-        update: { $set: { teamId, playerId: "p2", statKey: "assists" } },
+        filter: { teamId, assigneeUserId: "u2", statKey: "assists" },
+        update: { $set: { teamId, assigneeUserId: "u2", statKey: "assists" } },
         upsert: true,
       },
     });
   });
 
-  test("bulkUpsert with empty assignments calls bulkWrite([])", async () => {
-    await dao.bulkUpsert("t1", []);
+  test("replaceTeamAssignments with empty assignments still clears team and calls bulkWrite([])", async () => {
+    await dao.replaceTeamAssignments("t1", []);
+    expect(StatRole_spy.deleteMany).toHaveBeenCalledWith({ teamId: "t1" });
     expect(StatRole_spy.bulkWrite).toHaveBeenCalledTimes(1);
     expect(StatRole_spy.bulkWrite).toHaveBeenCalledWith([]);
   });
@@ -154,7 +156,7 @@ describe("statRoleDao.js", () => {
     expect(out).toEqual({ deletedCount: 3 });
   });
 
-  test("schema index is defined (unique teamId+playerId)", () => {
+  test("schema index is defined (unique teamId+assigneeUserId+statKey)", () => {
     expect(schemaIndexSpy).toHaveBeenCalled();
   });
 });

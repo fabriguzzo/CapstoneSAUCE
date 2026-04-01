@@ -11,6 +11,7 @@ const teamController = require('./controller/teamController');
 const feedbackController = require('./controller/feedbackController');
 const statTrackerController = require('./controller/statTrackerController');
 const statRoleController = require("./controller/statRoleController");
+const notificationController = require('./controller/notificationController');
 const authController = require('./controller/authController');
 const userController = require('./controller/userController');
 const { authenticate, requireRole, requireApproved } = require('./middleware/auth');
@@ -135,6 +136,13 @@ const rolesRouter = express.Router();
 rolesRouter.get("/", authenticate, requireApproved, statRoleController.getAll);
 rolesRouter.post("/bulk", authenticate, requireApproved, statRoleController.bulkSave);
 app.use("/api/stat-roles", rolesRouter);
+
+// --- Notifications routes (authenticated) ---
+const notificationsRouter = express.Router();
+notificationsRouter.get('/', authenticate, notificationController.getMine);
+notificationsRouter.get('/unread-status', authenticate, notificationController.getUnreadStatus);
+notificationsRouter.put('/mark-seen', authenticate, notificationController.markMineSeen);
+app.use('/api/notifications', notificationsRouter);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
