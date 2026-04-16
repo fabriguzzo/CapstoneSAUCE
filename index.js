@@ -11,8 +11,6 @@ const teamController = require('./controller/teamController');
 const feedbackController = require('./controller/feedbackController');
 const statTrackerController = require('./controller/statTrackerController');
 const statRoleController = require("./controller/statRoleController");
-const faceoffController = require('./controller/faceoffController');
-const hitPenaltyController = require('./controller/hitPenaltyController');
 const notificationController = require('./controller/notificationController');
 const authController = require('./controller/authController');
 const userController = require('./controller/userController');
@@ -133,19 +131,19 @@ statsRouter.delete('/', authenticate, requireApproved, statTrackerController.del
 statsRouter.post('/bulk', authenticate, requireApproved, statTrackerController.bulkSave);
 app.use('/api/stats', statsRouter);
 
-// --- Faceoff routes (all require approved) ---
-const faceoffRouter = express.Router();
-faceoffRouter.get('/', authenticate, requireApproved, faceoffController.getByGame);
-faceoffRouter.post('/', authenticate, requireApproved, faceoffController.create);
-faceoffRouter.post('/undo', authenticate, requireApproved, faceoffController.undoLast);
-app.use('/api/faceoffs', faceoffRouter);
+// --- Game Events routes (faceoffs, hits, penalties — all require approved) ---
+const eventsRouter = express.Router();
+eventsRouter.get('/', authenticate, requireApproved, statTrackerController.getEventsByGame);
+eventsRouter.post('/', authenticate, requireApproved, statTrackerController.createEvent);
+eventsRouter.post('/undo', authenticate, requireApproved, statTrackerController.undoLastEvent);
+app.use('/api/events', eventsRouter);
 
-// --- Hit/Penalty routes (all require approved) ---
-const hitPenaltyRouter = express.Router();
-hitPenaltyRouter.get('/', authenticate, requireApproved, hitPenaltyController.getByGame);
-hitPenaltyRouter.post('/', authenticate, requireApproved, hitPenaltyController.create);
-hitPenaltyRouter.post('/undo', authenticate, requireApproved, hitPenaltyController.undoLast);
-app.use('/api/hit-penalties', hitPenaltyRouter);
+// --- Possession routes ---
+const possessionRouter = express.Router();
+possessionRouter.post('/', authenticate, requireApproved, statTrackerController.savePossession);
+possessionRouter.get('/game/:gameId', authenticate, requireApproved, statTrackerController.getPossession);
+possessionRouter.get('/game/:gameId/latest', authenticate, requireApproved, statTrackerController.getLatestPossession);
+app.use('/api/possession', possessionRouter);
 
 // --- Stat roles routes (all require approved) ---
 const rolesRouter = express.Router();

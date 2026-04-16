@@ -74,6 +74,18 @@ interface StatHistoryEntry {
   faceoffsLost: number;
 }
 
+interface PossessionSnapshot {
+  _id: string;
+  gameId: string;
+  teamId: string;
+  homeSeconds: number;
+  awaySeconds: number;
+  period?: number;
+  clockSecondsRemaining?: number;
+  gameSecondsElapsed?: number;
+  timestamp: string;
+}
+
 const STAT_FIELDS = [
   { key: "goals", label: "Goals", color: "#8884d8" },
   { key: "assists", label: "Assists", color: "#82ca9d" },
@@ -85,6 +97,8 @@ const STAT_FIELDS = [
   { key: "goalsAgainst", label: "Goals Against", color: "#f43f5e" },
   { key: "faceoffsWon", label: "Faceoffs Won", color: "#a855f7" },
   { key: "faceoffsLost", label: "Faceoffs Lost", color: "#f97316" },
+  { key: "homePossession", label: "Home Possession (s)", color: "#06b6d4" },
+  { key: "awayPossession", label: "Away Possession (s)", color: "#d946ef" },
 ] as const;
 
 const CREAM = "#fff2d1";
@@ -149,6 +163,7 @@ export default function GameStats() {
   const [game, setGame] = useState<Game | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [statHistory, setStatHistory] = useState<StatHistoryEntry[]>([]);
+  const [possessionHistory, setPossessionHistory] = useState<PossessionSnapshot[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const [viewMode, setViewMode] = useState<"total" | "cumulative" | "players">("cumulative");
@@ -170,10 +185,11 @@ export default function GameStats() {
         return;
       }
 
-      const [playersRes, historyRes, teamRes] = await Promise.all([
+      const [playersRes, historyRes, teamRes, possessionRes] = await Promise.all([
         authFetch(`${API_BASE_URL}/api/players?teamId=${gameData.teamId}`),
         authFetch(`${API_BASE_URL}/api/stats/history/game/${gameId}`),
         authFetch(`${API_BASE_URL}/api/teams/${gameData.teamId}`),
+        authFetch(`${API_BASE_URL}/api/possession/game/${gameId}`),
       ]);
 
       const playersData = await playersRes.json();
@@ -184,6 +200,9 @@ export default function GameStats() {
 
       const teamData = await teamRes.json();
       setTeamName(teamData.name || "Team");
+
+      const possessionData = await possessionRes.json();
+      setPossessionHistory(Array.isArray(possessionData) ? possessionData : []);
     } catch (err) {
       console.error("Error fetching data:", err);
     } finally {
@@ -230,8 +249,27 @@ export default function GameStats() {
     return filtered;
   }, [sortedHistory, timeRangeStart, timeRangeEnd]);
 
+  // Build sorted possession data for interpolation
+  const sortedPossession = useMemo(() => {
+    return [...possessionHistory].sort(
+      (a, b) => (a.gameSecondsElapsed ?? 0) - (b.gameSecondsElapsed ?? 0)
+    );
+  }, [possessionHistory]);
+
+  const getPossessionAt = (gameSecondsElapsed: number) => {
+    // Find the last possession snapshot at or before this time
+    let home = 0, away = 0;
+    for (const snap of sortedPossession) {
+      if ((snap.gameSecondsElapsed ?? 0) <= gameSecondsElapsed) {
+        home = snap.homeSeconds;
+        away = snap.awaySeconds;
+      } else break;
+    }
+    return { homePossession: home, awayPossession: away };
+  };
+
   const chartData = useMemo(() => {
-    if (filteredHistory.length === 0) return [];
+    if (filteredHistory.length === 0 && sortedPossession.length === 0) return [];
 
     if (viewMode === "players") {
       const playerDataByTime: Record<string, Record<string, string | number>> = {};
@@ -279,6 +317,8 @@ export default function GameStats() {
         plusMinus: entry.plusMinus ?? 0,
         saves: entry.saves ?? 0,
         goalsAgainst: entry.goalsAgainst ?? 0,
+        faceoffsWon: entry.faceoffsWon ?? 0,
+        faceoffsLost: entry.faceoffsLost ?? 0,
       };
 
       const totals: Record<string, number> = {};
@@ -292,6 +332,11 @@ export default function GameStats() {
         });
       });
 
+      // Merge possession data at this time point
+      const possAt = getPossessionAt(entry.gameSecondsElapsed ?? 0);
+      totals.homePossession = possAt.homePossession;
+      totals.awayPossession = possAt.awayPossession;
+
       series.push({
         gameSecondsElapsed: entry.gameSecondsElapsed ?? 0,
         label: formatPeriodClock(entry.period ?? 1, entry.clockSecondsRemaining ?? 1200),
@@ -304,7 +349,7 @@ export default function GameStats() {
     }
 
     return series;
-  }, [filteredHistory, viewMode, selectedPlayers, players]);
+  }, [filteredHistory, viewMode, selectedPlayers, players, sortedPossession]);
 
   const pdfTeamChartData = useMemo(() => {
     if (sortedHistory.length === 0) return [];
@@ -326,6 +371,9 @@ export default function GameStats() {
           totals[stat.key] += snapshot[stat.key] || 0;
         });
       });
+      const possAt = getPossessionAt(entry.gameSecondsElapsed ?? 0);
+      totals.homePossession = possAt.homePossession;
+      totals.awayPossession = possAt.awayPossession;
       series.push({
         gameSecondsElapsed: entry.gameSecondsElapsed ?? 0,
         label: formatPeriodClock(entry.period ?? 1, entry.clockSecondsRemaining ?? 1200),
@@ -333,7 +381,7 @@ export default function GameStats() {
       });
     });
     return series;
-  }, [sortedHistory]);
+  }, [sortedHistory, sortedPossession]);
 
   const pdfPlayerChartData = useMemo(() => {
     return players
@@ -355,6 +403,8 @@ export default function GameStats() {
           plusMinus: entry.plusMinus ?? 0,
           saves: entry.saves ?? 0,
           goalsAgainst: entry.goalsAgainst ?? 0,
+          faceoffsWon: entry.faceoffsWon ?? 0,
+          faceoffsLost: entry.faceoffsLost ?? 0,
         }));
         return { player, data };
       })

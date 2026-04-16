@@ -16,6 +16,11 @@ const dao = {
   getHistory: vi.fn(),
   getPlayerHistory: vi.fn(),
   getGameHistory: vi.fn(),
+
+  EVENT_TYPES: ['faceoff', 'hit', 'penalty', 'goal', 'assist', 'shot', 'save', 'goal_against'],
+  createEvent: vi.fn(),
+  getEventsByGame: vi.fn(),
+  deleteLastEvent: vi.fn(),
 };
 
 
@@ -127,6 +132,9 @@ describe("statTrackerController Module", () => {
       expect(typeof controller.getHistory).toBe("function");
       expect(typeof controller.getPlayerHistory).toBe("function");
       expect(typeof controller.getGameHistory).toBe("function");
+      expect(typeof controller.createEvent).toBe("function");
+      expect(typeof controller.getEventsByGame).toBe("function");
+      expect(typeof controller.undoLastEvent).toBe("function");
     });
 
   });
@@ -409,6 +417,138 @@ describe("statTrackerController Module", () => {
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ error: "Game ID is required" });
+    });
+  });
+
+  describe("event endpoints", () => {
+    test("createEvent 201: valid faceoff event", async () => {
+      const req = {
+        body: {
+          gameId: "g1", teamId: "t1", eventType: "faceoff", team: "home",
+          homePlayerId: "p1", homePlayerName: "Player One", homePlayerNumber: 10,
+          awayPlayerName: "Opp One", awayPlayerNumber: 5, winner: "home",
+          period: 1, clockSecondsRemaining: 900, gameSecondsElapsed: 300,
+        },
+      };
+      const res = makeRes();
+      dao.createEvent.mockResolvedValue({ _id: "e1", ...req.body });
+
+      await controller.createEvent(req, res);
+
+      expect(dao.createEvent).toHaveBeenCalledTimes(1);
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    test("createEvent 400: invalid eventType", async () => {
+      const req = { body: { gameId: "g1", teamId: "t1", eventType: "invalid", team: "home" } };
+      const res = makeRes();
+
+      await controller.createEvent(req, res);
+
+      expect(dao.createEvent).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    test("createEvent 400: faceoff missing winner", async () => {
+      const req = {
+        body: {
+          gameId: "g1", teamId: "t1", eventType: "faceoff", team: "home",
+          homePlayerName: "P1", awayPlayerName: "O1",
+        },
+      };
+      const res = makeRes();
+
+      await controller.createEvent(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    test("createEvent 201: valid hit event", async () => {
+      const req = {
+        body: {
+          gameId: "g1", teamId: "t1", eventType: "hit", team: "away",
+          awayPlayerName: "Opp Two", awayPlayerNumber: 8,
+        },
+      };
+      const res = makeRes();
+      dao.createEvent.mockResolvedValue({ _id: "e2", ...req.body });
+
+      await controller.createEvent(req, res);
+
+      expect(dao.createEvent).toHaveBeenCalledTimes(1);
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    test("createEvent 400: penalty without valid penaltyMinutes", async () => {
+      const req = {
+        body: { gameId: "g1", teamId: "t1", eventType: "penalty", team: "home" },
+      };
+      const res = makeRes();
+
+      await controller.createEvent(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    test("getEventsByGame 200", async () => {
+      const req = { query: { gameId: "g1" } };
+      const res = makeRes();
+      dao.getEventsByGame.mockResolvedValue([{ _id: "e1" }]);
+
+      await controller.getEventsByGame(req, res);
+
+      expect(dao.getEventsByGame).toHaveBeenCalledWith("g1", null);
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    test("getEventsByGame 200 with eventType filter", async () => {
+      const req = { query: { gameId: "g1", eventType: "faceoff" } };
+      const res = makeRes();
+      dao.getEventsByGame.mockResolvedValue([]);
+
+      await controller.getEventsByGame(req, res);
+
+      expect(dao.getEventsByGame).toHaveBeenCalledWith("g1", "faceoff");
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    test("getEventsByGame 400 missing gameId", async () => {
+      const req = { query: {} };
+      const res = makeRes();
+
+      await controller.getEventsByGame(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    test("undoLastEvent 200", async () => {
+      const req = { body: { gameId: "g1", eventType: "hit" } };
+      const res = makeRes();
+      dao.deleteLastEvent.mockResolvedValue({ _id: "e1" });
+
+      await controller.undoLastEvent(req, res);
+
+      expect(dao.deleteLastEvent).toHaveBeenCalledWith("g1", "hit");
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    test("undoLastEvent 404 when nothing to undo", async () => {
+      const req = { body: { gameId: "g1" } };
+      const res = makeRes();
+      dao.deleteLastEvent.mockResolvedValue(null);
+
+      await controller.undoLastEvent(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    test("undoLastEvent 400 missing gameId", async () => {
+      const req = { body: {} };
+      const res = makeRes();
+
+      await controller.undoLastEvent(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
     });
   });
 });

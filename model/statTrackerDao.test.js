@@ -55,9 +55,16 @@ const StatHistory_spy = {
   find: vi.fn(),
   bulkWrite: vi.fn(),
 };
+const GameEvent_spy = {
+  find: vi.fn(),
+  findOne: vi.fn(),
+  findByIdAndDelete: vi.fn(),
+  deleteMany: vi.fn(),
+};
 
 const statLineSaveSpy = vi.fn(async () => true);
 const statHistorySaveSpy = vi.fn(async () => true);
+const gameEventSaveSpy = vi.fn(async () => true);
 
 class StatLineMock {
   constructor(data) {
@@ -99,11 +106,57 @@ class StatHistoryMock {
   }
 }
 
+class GameEventMock {
+  constructor(data) {
+    this.data = data;
+  }
+  save = gameEventSaveSpy;
+
+  static find(...args) {
+    return GameEvent_spy.find(...args);
+  }
+  static findOne(...args) {
+    return GameEvent_spy.findOne(...args);
+  }
+  static findByIdAndDelete(...args) {
+    return GameEvent_spy.findByIdAndDelete(...args);
+  }
+  static deleteMany(...args) {
+    return GameEvent_spy.deleteMany(...args);
+  }
+}
+
+const PossessionSnapshot_spy = {
+  find: vi.fn(),
+  findOne: vi.fn(),
+  deleteMany: vi.fn(),
+};
+const possessionSaveSpy = vi.fn(async () => true);
+
+class PossessionSnapshotMock {
+  constructor(data) {
+    this.data = data;
+  }
+  save = possessionSaveSpy;
+
+  static find(...args) {
+    return PossessionSnapshot_spy.find(...args);
+  }
+  static findOne(...args) {
+    return PossessionSnapshot_spy.findOne(...args);
+  }
+  static deleteMany(...args) {
+    return PossessionSnapshot_spy.deleteMany(...args);
+  }
+}
+
 const mongooseMock = {
   Schema: SchemaMock,
   model: vi.fn((name) => {
     if (name === "StatHistory") return StatHistoryMock;
     if (name === "StatLine") return StatLineMock;
+    if (name === "GameEvent") return GameEventMock;
+    if (name === "PossessionSnapshot") return PossessionSnapshotMock;
     throw new Error(`Unexpected mongoose.model(${name})`);
   }),
   Types: TypesMock,
@@ -143,12 +196,23 @@ describe("statTrackerDao.js", () => {
     StatHistory_spy.find.mockReturnValue(chainResult([{ _id: "h1" }]));
     StatHistory_spy.bulkWrite.mockResolvedValue({ ok: 1 });
 
+    GameEvent_spy.find.mockReturnValue(chainResult([{ _id: "e1", eventType: "faceoff" }]));
+    GameEvent_spy.findOne.mockReturnValue({ sort: vi.fn(() => ({ _id: "e1" })) });
+
+    PossessionSnapshot_spy.find.mockReturnValue(chainResult([{ _id: "p1", homeSeconds: 30, awaySeconds: 20 }]));
+    PossessionSnapshot_spy.findOne.mockReturnValue({ sort: vi.fn(() => ({ lean: vi.fn(async () => ({ _id: "p1", homeSeconds: 30, awaySeconds: 20 })) })) });
+    PossessionSnapshot_spy.deleteMany.mockResolvedValue({ deletedCount: 1 });
+    GameEvent_spy.findByIdAndDelete.mockReturnValue({ lean: vi.fn(async () => ({ _id: "e1" })) });
+    GameEvent_spy.deleteMany.mockResolvedValue({ deletedCount: 1 });
+
     TypesMock.ObjectId.isValid.mockImplementation((v) => isValid24Hex(v));
   });
 
   test("exports models", () => {
     expect(dao.StatLine).toBe(StatLineMock);
     expect(dao.StatHistory).toBe(StatHistoryMock);
+    expect(dao.GameEvent).toBe(GameEventMock);
+    expect(dao.EVENT_TYPES).toEqual(["faceoff", "hit", "penalty", "goal", "assist", "shot", "save", "goal_against"]);
   });
 
   test("create saves StatLine and history", async () => {
@@ -247,5 +311,46 @@ describe("statTrackerDao.js", () => {
     await dao.getGameHistory("bad");
     q = StatHistory_spy.find.mock.calls.at(-1)[0];
     expect(q).toEqual({});
+  });
+
+  // ── GameEvent tests ──
+
+  test("createEvent saves a GameEvent", async () => {
+    const payload = { gameId: "g1", teamId: "t1", eventType: "faceoff", team: "home", winner: "home" };
+    await dao.createEvent(payload);
+
+    expect(gameEventSaveSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("getEventsByGame calls find with gameId", async () => {
+    await dao.getEventsByGame("g1");
+    expect(GameEvent_spy.find).toHaveBeenCalledWith({ gameId: "g1" });
+  });
+
+  test("getEventsByGame filters by eventType when provided", async () => {
+    await dao.getEventsByGame("g1", "hit");
+    expect(GameEvent_spy.find).toHaveBeenCalledWith({ gameId: "g1", eventType: "hit" });
+  });
+
+  test("deleteLastEvent finds and deletes last event", async () => {
+    const mockEvent = { _id: "e1" };
+    GameEvent_spy.findOne.mockReturnValueOnce({ sort: vi.fn(() => mockEvent) });
+    GameEvent_spy.findByIdAndDelete.mockReturnValueOnce({ lean: vi.fn(async () => mockEvent) });
+
+    const result = await dao.deleteLastEvent("g1", "faceoff");
+    expect(GameEvent_spy.findOne).toHaveBeenCalledWith({ gameId: "g1", eventType: "faceoff" });
+    expect(result).toEqual(mockEvent);
+  });
+
+  test("deleteLastEvent returns null when no events", async () => {
+    GameEvent_spy.findOne.mockReturnValueOnce({ sort: vi.fn(() => null) });
+
+    const result = await dao.deleteLastEvent("g1");
+    expect(result).toBeNull();
+  });
+
+  test("deleteAllEvents calls deleteMany", async () => {
+    await dao.deleteAllEvents({ gameId: "g1" });
+    expect(GameEvent_spy.deleteMany).toHaveBeenCalledWith({ gameId: "g1" });
   });
 });

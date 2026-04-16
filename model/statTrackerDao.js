@@ -1,5 +1,82 @@
 const mongoose = require('mongoose');
 
+// ── GameEvent: unified event log for both teams (replaces Faceoff + HitPenalty) ──
+
+const EVENT_TYPES = ['faceoff', 'hit', 'penalty', 'goal', 'assist', 'shot', 'save', 'goal_against'];
+
+const GameEventSchema = new mongoose.Schema(
+  {
+    gameId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    teamId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+
+    eventType: { type: String, enum: EVENT_TYPES, required: true },
+
+    // Which side initiated / is the subject: 'home' or 'away'
+    team: { type: String, enum: ['home', 'away'], required: true },
+
+    // Home-team player (always an ObjectId referencing the Player collection)
+    homePlayerId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    homePlayerName: { type: String, default: '' },
+    homePlayerNumber: { type: Number, default: null },
+
+    // Away-team player (name + number only — opponent roster has no _id in DB)
+    awayPlayerName: { type: String, default: '' },
+    awayPlayerNumber: { type: Number, default: null },
+
+    // Faceoff-specific
+    winner: { type: String, enum: ['home', 'away', null], default: null },
+
+    // Penalty-specific
+    penaltyMinutes: { type: Number, default: 0, min: 0 },
+
+    // Game-clock context
+    period: { type: Number, default: 1, min: 1 },
+    clockSecondsRemaining: { type: Number, default: 1200, min: 0 },
+    gameSecondsElapsed: { type: Number, default: 0, min: 0 },
+
+    timestamp: { type: Date, default: Date.now },
+  },
+  { timestamps: true }
+);
+
+GameEventSchema.index({ gameId: 1, timestamp: 1 });
+GameEventSchema.index({ gameId: 1, eventType: 1 });
+GameEventSchema.index({ homePlayerId: 1, eventType: 1 });
+GameEventSchema.index({ awayPlayerName: 1, awayPlayerNumber: 1, eventType: 1 });
+
+const GameEvent = mongoose.model('GameEvent', GameEventSchema);
+
+exports.EVENT_TYPES = EVENT_TYPES;
+
+// ── GameEvent CRUD ──
+
+exports.createEvent = async (data) => {
+  const event = new GameEvent(data);
+  return await event.save();
+};
+
+exports.getEventsByGame = async (gameId, eventType) => {
+  const filter = { gameId };
+  if (eventType) filter.eventType = eventType;
+  return await GameEvent.find(filter).sort({ timestamp: -1 }).lean();
+};
+
+exports.deleteLastEvent = async (gameId, eventType) => {
+  const filter = { gameId };
+  if (eventType) filter.eventType = eventType;
+  const last = await GameEvent.findOne(filter).sort({ timestamp: -1 });
+  if (!last) return null;
+  return await GameEvent.findByIdAndDelete(last._id).lean();
+};
+
+exports.deleteAllEvents = async (filter = {}) => {
+  return await GameEvent.deleteMany(filter);
+};
+
+exports.GameEvent = GameEvent;
+
+// ── StatHistory & StatLine (unchanged — cumulative stat snapshots per player) ──
+
 const StatHistorySchema = new mongoose.Schema(
   {
     gameId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
@@ -143,6 +220,52 @@ exports.bulkUpsert = async (lines) => {
 
 exports.StatLine = StatLine;
 exports.StatHistory = StatHistory;
+
+// ── PossessionSnapshot: time-of-possession tracking per game ──
+
+const PossessionSnapshotSchema = new mongoose.Schema(
+  {
+    gameId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    teamId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    homeSeconds: { type: Number, default: 0, min: 0 },
+    awaySeconds: { type: Number, default: 0, min: 0 },
+    period: { type: Number, default: 1, min: 1 },
+    clockSecondsRemaining: { type: Number, default: 1200, min: 0 },
+    gameSecondsElapsed: { type: Number, default: 0, min: 0 },
+    timestamp: { type: Date, default: Date.now },
+  },
+  { timestamps: true }
+);
+
+PossessionSnapshotSchema.index({ gameId: 1, gameSecondsElapsed: 1 });
+
+const PossessionSnapshot = mongoose.model('PossessionSnapshot', PossessionSnapshotSchema);
+
+exports.PossessionSnapshot = PossessionSnapshot;
+
+exports.savePossession = async (data) => {
+  const snap = new PossessionSnapshot(data);
+  return await snap.save();
+};
+
+exports.getPossessionByGame = async (gameId) => {
+  if (!gameId || !mongoose.Types.ObjectId.isValid(gameId)) return [];
+  return await PossessionSnapshot.find({ gameId: new mongoose.Types.ObjectId(gameId) })
+    .sort({ gameSecondsElapsed: 1, timestamp: 1 })
+    .lean();
+};
+
+exports.getLatestPossession = async (gameId) => {
+  if (!gameId || !mongoose.Types.ObjectId.isValid(gameId)) return null;
+  return await PossessionSnapshot.findOne({ gameId: new mongoose.Types.ObjectId(gameId) })
+    .sort({ timestamp: -1 })
+    .lean();
+};
+
+exports.deletePossessionByGame = async (gameId) => {
+  if (!gameId) return;
+  return await PossessionSnapshot.deleteMany({ gameId });
+};
 
 exports.getHistory = async (filter = {}) => {
   const mongooseFilter = {};

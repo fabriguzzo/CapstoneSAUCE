@@ -293,3 +293,151 @@ exports.getGameHistory = async function (req, res) {
     return res.status(500).json({ error: 'Failed to retrieve game stat history' });
   }
 };
+
+// ── GameEvent endpoints (faceoffs, hits, penalties for both teams) ──
+
+exports.createEvent = async function (req, res) {
+  try {
+    const { gameId, teamId, eventType, team, winner, penaltyMinutes,
+            homePlayerId, homePlayerName, homePlayerNumber,
+            awayPlayerName, awayPlayerNumber,
+            period, clockSecondsRemaining, gameSecondsElapsed } = req.body;
+
+    if (!gameId) return res.status(400).json({ error: 'Game ID is required' });
+    if (!teamId) return res.status(400).json({ error: 'Team ID is required' });
+    if (!dao.EVENT_TYPES.includes(eventType)) {
+      return res.status(400).json({ error: `eventType must be one of: ${dao.EVENT_TYPES.join(', ')}` });
+    }
+    if (!['home', 'away'].includes(team)) {
+      return res.status(400).json({ error: 'team must be "home" or "away"' });
+    }
+
+    if (eventType === 'faceoff') {
+      if (!['home', 'away'].includes(winner)) {
+        return res.status(400).json({ error: 'winner must be "home" or "away" for faceoffs' });
+      }
+      if (!homePlayerName && !homePlayerId) {
+        return res.status(400).json({ error: 'Home player info is required for faceoffs' });
+      }
+      if (!awayPlayerName) {
+        return res.status(400).json({ error: 'Away player name is required for faceoffs' });
+      }
+    }
+
+    if (eventType === 'penalty') {
+      const mins = Number(penaltyMinutes);
+      if (!Number.isFinite(mins) || mins <= 0) {
+        return res.status(400).json({ error: 'penaltyMinutes must be a positive number for penalties' });
+      }
+    }
+
+    const doc = await dao.createEvent({
+      gameId,
+      teamId,
+      eventType,
+      team,
+      homePlayerId: homePlayerId || null,
+      homePlayerName: homePlayerName ? String(homePlayerName) : '',
+      homePlayerNumber: homePlayerNumber != null ? Number(homePlayerNumber) : null,
+      awayPlayerName: awayPlayerName ? String(awayPlayerName) : '',
+      awayPlayerNumber: awayPlayerNumber != null ? Number(awayPlayerNumber) : null,
+      winner: eventType === 'faceoff' ? winner : null,
+      penaltyMinutes: eventType === 'penalty' ? Number(penaltyMinutes) : 0,
+      period: Number(period) || 1,
+      clockSecondsRemaining: Number.isFinite(Number(clockSecondsRemaining)) ? Number(clockSecondsRemaining) : 1200,
+      gameSecondsElapsed: Number.isFinite(Number(gameSecondsElapsed)) ? Number(gameSecondsElapsed) : 0,
+      timestamp: new Date(),
+    });
+
+    return res.status(201).json(doc);
+  } catch (err) {
+    console.error('Error creating game event:', err);
+    return res.status(500).json({ error: 'Failed to create game event' });
+  }
+};
+
+exports.getEventsByGame = async function (req, res) {
+  try {
+    const { gameId, eventType } = req.query;
+    if (!gameId) return res.status(400).json({ error: 'Game ID is required' });
+
+    const events = await dao.getEventsByGame(gameId, eventType || null);
+    return res.status(200).json(events);
+  } catch (err) {
+    console.error('Error fetching game events:', err);
+    return res.status(500).json({ error: 'Failed to retrieve game events' });
+  }
+};
+
+exports.undoLastEvent = async function (req, res) {
+  try {
+    const { gameId, eventType } = req.body;
+    if (!gameId) return res.status(400).json({ error: 'Game ID is required' });
+
+    const deleted = await dao.deleteLastEvent(gameId, eventType || null);
+    if (!deleted) return res.status(404).json({ error: 'No events to undo' });
+
+    return res.status(200).json({ message: 'Last event undone', deleted });
+  } catch (err) {
+    console.error('Error undoing game event:', err);
+    return res.status(500).json({ error: 'Failed to undo game event' });
+  }
+};
+
+// ── Possession endpoints ──
+
+exports.savePossession = async function (req, res) {
+  try {
+    const { gameId, teamId, homeSeconds, awaySeconds, period, clockSecondsRemaining, gameSecondsElapsed } = req.body;
+
+    if (!gameId) return res.status(400).json({ error: 'Game ID is required' });
+    if (!teamId) return res.status(400).json({ error: 'Team ID is required' });
+
+    const hs = Number(homeSeconds);
+    const as = Number(awaySeconds);
+    if (!Number.isFinite(hs) || hs < 0) return res.status(400).json({ error: 'homeSeconds must be a non-negative number' });
+    if (!Number.isFinite(as) || as < 0) return res.status(400).json({ error: 'awaySeconds must be a non-negative number' });
+
+    const doc = await dao.savePossession({
+      gameId,
+      teamId,
+      homeSeconds: Math.round(hs),
+      awaySeconds: Math.round(as),
+      period: Number(period) || 1,
+      clockSecondsRemaining: Number.isFinite(Number(clockSecondsRemaining)) ? Number(clockSecondsRemaining) : 1200,
+      gameSecondsElapsed: Number.isFinite(Number(gameSecondsElapsed)) ? Number(gameSecondsElapsed) : 0,
+      timestamp: new Date(),
+    });
+
+    return res.status(201).json(doc);
+  } catch (err) {
+    console.error('Error saving possession:', err);
+    return res.status(500).json({ error: 'Failed to save possession' });
+  }
+};
+
+exports.getPossession = async function (req, res) {
+  try {
+    const gameId = req.params.gameId || req.query.gameId;
+    if (!gameId) return res.status(400).json({ error: 'Game ID is required' });
+
+    const snapshots = await dao.getPossessionByGame(gameId);
+    return res.status(200).json(snapshots);
+  } catch (err) {
+    console.error('Error fetching possession:', err);
+    return res.status(500).json({ error: 'Failed to retrieve possession data' });
+  }
+};
+
+exports.getLatestPossession = async function (req, res) {
+  try {
+    const gameId = req.params.gameId || req.query.gameId;
+    if (!gameId) return res.status(400).json({ error: 'Game ID is required' });
+
+    const latest = await dao.getLatestPossession(gameId);
+    return res.status(200).json(latest || { homeSeconds: 0, awaySeconds: 0 });
+  } catch (err) {
+    console.error('Error fetching latest possession:', err);
+    return res.status(500).json({ error: 'Failed to retrieve latest possession' });
+  }
+};

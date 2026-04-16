@@ -77,28 +77,22 @@ type OpponentPlayer = {
   name: string;
 };
 
-type FaceoffRecord = {
+type GameEventRecord = {
   _id: string;
   gameId: string;
   teamId: string;
-  homePlayerId: string;
+  eventType: "faceoff" | "hit" | "penalty";
+  team: "home" | "away";
+  homePlayerId: string | null;
   homePlayerName: string;
-  homePlayerNumber: number;
+  homePlayerNumber: number | null;
   awayPlayerName: string;
-  awayPlayerNumber: number;
-  winner: "home" | "away";
-  timestamp: string;
-};
-
-type HitPenaltyRecord = {
-  _id: string;
-  gameId: string;
-  teamId: string;
-  playerId: string;
-  playerName: string;
-  playerNumber: number;
-  type: "hit" | "penalty";
+  awayPlayerNumber: number | null;
+  winner: "home" | "away" | null;
   penaltyMinutes: number;
+  period: number;
+  clockSecondsRemaining: number;
+  gameSecondsElapsed: number;
   timestamp: string;
 };
 
@@ -107,8 +101,7 @@ const API = {
   games: "/api/games",
   players: "/api/players",
   stats: "/api/stats",
-  faceoffs: "/api/faceoffs",
-  hitPenalties: "/api/hit-penalties",
+  events: "/api/events",
 };
 
 const PERIOD_LENGTH_SECONDS = 20 * 60;
@@ -218,14 +211,20 @@ export default function StatTrackerPage() {
   // Faceoff state
   const [faceoffHomePlayer, setFaceoffHomePlayer] = useState<Player | null>(null);
   const [faceoffAwayPlayer, setFaceoffAwayPlayer] = useState<OpponentPlayer | null>(null);
-  const [faceoffs, setFaceoffs] = useState<FaceoffRecord[]>([]);
+  const [faceoffs, setFaceoffs] = useState<GameEventRecord[]>([]);
   const [faceoffSaving, setFaceoffSaving] = useState(false);
 
   // Hit/Penalty state
-  const [hitPenalties, setHitPenalties] = useState<HitPenaltyRecord[]>([]);
+  const [hitPenalties, setHitPenalties] = useState<GameEventRecord[]>([]);
   const [hpSaving, setHpSaving] = useState(false);
   const [hpPenaltyPlayer, setHpPenaltyPlayer] = useState<Player | null>(null);
   const [hpPenaltyMinutes, setHpPenaltyMinutes] = useState<number>(2);
+
+  // Possession tracker state
+  const [possessionOwner, setPossessionOwner] = useState<"home" | "away" | "none">("none");
+  const [homeSeconds, setHomeSeconds] = useState(0);
+  const [awaySeconds, setAwaySeconds] = useState(0);
+  const [possessionSaving, setPossessionSaving] = useState(false);
 
   useEffect(() => {
     if (!isClockRunning) return;
@@ -242,6 +241,16 @@ export default function StatTrackerPage() {
 
     return () => window.clearInterval(timer);
   }, [isClockRunning]);
+
+  // Possession timer — tick every second for whichever team has possession
+  useEffect(() => {
+    if (possessionOwner === "none") return;
+    const timer = window.setInterval(() => {
+      if (possessionOwner === "home") setHomeSeconds((s) => s + 1);
+      else if (possessionOwner === "away") setAwaySeconds((s) => s + 1);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [possessionOwner]);
 
   useEffect(() => {
     (async () => {
@@ -495,24 +504,32 @@ export default function StatTrackerPage() {
       setFaceoffAwayPlayer(null);
       setHitPenalties([]);
       setHpPenaltyPlayer(null);
+      setPossessionOwner("none");
+      setHomeSeconds(0);
+      setAwaySeconds(0);
       return;
     }
     (async () => {
       try {
-        const [fRes, hpRes] = await Promise.all([
-          authFetch(`${API.faceoffs}?gameId=${encodeURIComponent(gameId)}`),
-          authFetch(`${API.hitPenalties}?gameId=${encodeURIComponent(gameId)}`),
-        ]);
-        if (fRes.ok) {
-          const data = await fRes.json();
-          setFaceoffs(Array.isArray(data) ? data : []);
-        }
-        if (hpRes.ok) {
-          const data = await hpRes.json();
-          setHitPenalties(Array.isArray(data) ? data : []);
+        const eventsRes = await authFetch(`${API.events}?gameId=${encodeURIComponent(gameId)}`);
+        if (eventsRes.ok) {
+          const allEvents: GameEventRecord[] = await eventsRes.json();
+          setFaceoffs(allEvents.filter((e) => e.eventType === "faceoff"));
+          setHitPenalties(allEvents.filter((e) => e.eventType === "hit" || e.eventType === "penalty"));
         }
       } catch (e) {
-        console.error("Failed to load faceoffs / hit-penalties", e);
+        console.error("Failed to load game events", e);
+      }
+      // Load latest possession
+      try {
+        const posRes = await authFetch(`/api/possession/game/${encodeURIComponent(gameId)}/latest`);
+        if (posRes.ok) {
+          const posData = await posRes.json();
+          setHomeSeconds(posData.homeSeconds ?? 0);
+          setAwaySeconds(posData.awaySeconds ?? 0);
+        }
+      } catch (e) {
+        console.error("Failed to load possession data", e);
       }
     })();
   }, [gameId, authFetch]);
@@ -560,18 +577,24 @@ export default function StatTrackerPage() {
     if (!faceoffHomePlayer || !faceoffAwayPlayer || !gameId || !teamId) return;
     setFaceoffSaving(true);
     try {
-      const res = await authFetch(API.faceoffs, {
+      const gameSecondsElapsed = getGameSecondsElapsed(currentPeriod, clockSecondsRemaining);
+      const res = await authFetch(API.events, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           gameId,
           teamId,
+          eventType: "faceoff",
+          team: "home",
           homePlayerId: faceoffHomePlayer._id,
           homePlayerName: faceoffHomePlayer.name,
           homePlayerNumber: faceoffHomePlayer.number,
           awayPlayerName: faceoffAwayPlayer.name,
           awayPlayerNumber: faceoffAwayPlayer.number,
           winner,
+          period: currentPeriod,
+          clockSecondsRemaining,
+          gameSecondsElapsed,
         }),
       });
       if (res.ok) {
@@ -599,10 +622,10 @@ export default function StatTrackerPage() {
     if (!gameId) return;
     setFaceoffSaving(true);
     try {
-      const res = await authFetch(`${API.faceoffs}/undo`, {
+      const res = await authFetch(`${API.events}/undo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gameId }),
+        body: JSON.stringify({ gameId, eventType: "faceoff" }),
       });
       if (res.ok) {
         setFaceoffs((prev) => prev.slice(1));
@@ -634,16 +657,21 @@ export default function StatTrackerPage() {
     if (!gameId || !teamId) return;
     setHpSaving(true);
     try {
-      const res = await authFetch(API.hitPenalties, {
+      const gameSecondsElapsed = getGameSecondsElapsed(currentPeriod, clockSecondsRemaining);
+      const res = await authFetch(API.events, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           gameId,
           teamId,
-          playerId: player._id,
-          playerName: player.name,
-          playerNumber: player.number,
-          type: "hit",
+          eventType: "hit",
+          team: "home",
+          homePlayerId: player._id,
+          homePlayerName: player.name,
+          homePlayerNumber: player.number,
+          period: currentPeriod,
+          clockSecondsRemaining,
+          gameSecondsElapsed,
         }),
       });
       if (res.ok) {
@@ -668,17 +696,22 @@ export default function StatTrackerPage() {
     if (!hpPenaltyPlayer || !gameId || !teamId) return;
     setHpSaving(true);
     try {
-      const res = await authFetch(API.hitPenalties, {
+      const gameSecondsElapsed = getGameSecondsElapsed(currentPeriod, clockSecondsRemaining);
+      const res = await authFetch(API.events, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           gameId,
           teamId,
-          playerId: hpPenaltyPlayer._id,
-          playerName: hpPenaltyPlayer.name,
-          playerNumber: hpPenaltyPlayer.number,
-          type: "penalty",
+          eventType: "penalty",
+          team: "home",
+          homePlayerId: hpPenaltyPlayer._id,
+          homePlayerName: hpPenaltyPlayer.name,
+          homePlayerNumber: hpPenaltyPlayer.number,
           penaltyMinutes: hpPenaltyMinutes,
+          period: currentPeriod,
+          clockSecondsRemaining,
+          gameSecondsElapsed,
         }),
       });
       if (res.ok) {
@@ -705,7 +738,7 @@ export default function StatTrackerPage() {
     if (!gameId) return;
     setHpSaving(true);
     try {
-      const res = await authFetch(`${API.hitPenalties}/undo`, {
+      const res = await authFetch(`${API.events}/undo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ gameId }),
@@ -730,7 +763,7 @@ export default function StatTrackerPage() {
     let totalPenalties = 0;
     let totalPIM = 0;
     for (const r of hitPenalties) {
-      if (r.type === "hit") totalHits++;
+      if (r.eventType === "hit") totalHits++;
       else {
         totalPenalties++;
         totalPIM += r.penaltyMinutes || 0;
@@ -738,6 +771,40 @@ export default function StatTrackerPage() {
     }
     return { totalHits, totalPenalties, totalPIM, total: hitPenalties.length };
   }, [hitPenalties]);
+
+  const changePossession = async (newOwner: "home" | "away" | "none") => {
+    // Save snapshot when possession changes from a team
+    if (possessionOwner !== "none" && gameId && teamId) {
+      setPossessionSaving(true);
+      try {
+        const gameSecondsElapsed = getGameSecondsElapsed(currentPeriod, clockSecondsRemaining);
+        await authFetch("/api/possession", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            gameId,
+            teamId,
+            homeSeconds,
+            awaySeconds,
+            period: currentPeriod,
+            clockSecondsRemaining,
+            gameSecondsElapsed,
+          }),
+        });
+      } catch (e) {
+        console.error("Failed to save possession snapshot", e);
+      } finally {
+        setPossessionSaving(false);
+      }
+    }
+    setPossessionOwner(newOwner);
+  };
+
+  const formatPossessionTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  };
 
   const editingPlayer = useMemo(() => {
     if (!editingPlayerId) return null;
@@ -1572,16 +1639,20 @@ export default function StatTrackerPage() {
                                   if (!gameId || !teamId) return;
                                   setHpSaving(true);
                                   try {
-                                    const res = await authFetch(API.hitPenalties, {
+                                    const gameSecondsElapsed = getGameSecondsElapsed(currentPeriod, clockSecondsRemaining);
+                                    const res = await authFetch(API.events, {
                                       method: "POST",
                                       headers: { "Content-Type": "application/json" },
                                       body: JSON.stringify({
                                         gameId,
                                         teamId,
-                                        playerId: "000000000000000000000000",
-                                        playerName: p.name,
-                                        playerNumber: p.number,
-                                        type: "hit",
+                                        eventType: "hit",
+                                        team: "away",
+                                        awayPlayerName: p.name,
+                                        awayPlayerNumber: p.number,
+                                        period: currentPeriod,
+                                        clockSecondsRemaining,
+                                        gameSecondsElapsed,
                                       }),
                                     });
                                     if (res.ok) {
@@ -1637,6 +1708,116 @@ export default function StatTrackerPage() {
                   </TableContainer>
                 </Box>
               </Stack>
+            </Paper>
+          )}
+
+          {/* ── Time of Possession Tracker ── */}
+          {selectedGame && (
+            <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
+              <Typography
+                sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}
+              >
+                Time of Possession
+              </Typography>
+
+              {/* Timers */}
+              <Stack direction="row" justifyContent="center" spacing={4} sx={{ mb: 3 }}>
+                <Paper
+                  elevation={3}
+                  sx={{
+                    p: 2,
+                    borderRadius: 3,
+                    bgcolor: possessionOwner === "home" ? GREEN : "rgba(0,95,2,0.08)",
+                    textAlign: "center",
+                    minWidth: 160,
+                    transition: "all 0.3s ease",
+                  }}
+                >
+                  <Typography sx={{ fontWeight: 900, fontSize: 14, opacity: 0.85, color: possessionOwner === "home" ? CREAM : GREEN }}>
+                    {teams.find((t) => t._id === teamId)?.name || "HOME"}
+                  </Typography>
+                  <Typography sx={{ fontWeight: 1000, fontSize: 40, lineHeight: 1.2, color: possessionOwner === "home" ? CREAM : GREEN }}>
+                    {formatPossessionTime(homeSeconds)}
+                  </Typography>
+                </Paper>
+
+                <Paper
+                  elevation={3}
+                  sx={{
+                    p: 2,
+                    borderRadius: 3,
+                    bgcolor: possessionOwner === "away" ? GREEN : "rgba(0,95,2,0.08)",
+                    textAlign: "center",
+                    minWidth: 160,
+                    transition: "all 0.3s ease",
+                  }}
+                >
+                  <Typography sx={{ fontWeight: 900, fontSize: 14, opacity: 0.85, color: possessionOwner === "away" ? CREAM : GREEN }}>
+                    {selectedGame.opponent?.teamName || "AWAY"}
+                  </Typography>
+                  <Typography sx={{ fontWeight: 1000, fontSize: 40, lineHeight: 1.2, color: possessionOwner === "away" ? CREAM : GREEN }}>
+                    {formatPossessionTime(awaySeconds)}
+                  </Typography>
+                </Paper>
+              </Stack>
+
+              {/* Buttons */}
+              <Stack direction="row" justifyContent="center" spacing={2}>
+                <Button
+                  variant={possessionOwner === "home" ? "contained" : "outlined"}
+                  disabled={possessionSaving}
+                  onClick={() => changePossession("home")}
+                  sx={{
+                    minWidth: 140,
+                    bgcolor: possessionOwner === "home" ? GREEN : undefined,
+                    borderColor: GREEN,
+                    color: possessionOwner === "home" ? CREAM : GREEN,
+                    fontWeight: 1000,
+                    fontSize: 16,
+                    py: 1.5,
+                    "&:hover": { bgcolor: GREEN, color: CREAM },
+                  }}
+                >
+                  {teams.find((t) => t._id === teamId)?.name || "Home"} Possession
+                </Button>
+
+                <Button
+                  variant={possessionOwner === "none" ? "contained" : "outlined"}
+                  disabled={possessionSaving}
+                  onClick={() => changePossession("none")}
+                  sx={{
+                    minWidth: 140,
+                    bgcolor: possessionOwner === "none" ? "#666" : undefined,
+                    borderColor: "#666",
+                    color: possessionOwner === "none" ? "#fff" : "#666",
+                    fontWeight: 1000,
+                    fontSize: 16,
+                    py: 1.5,
+                    "&:hover": { bgcolor: "#666", color: "#fff" },
+                  }}
+                >
+                  Stop Timer
+                </Button>
+
+                <Button
+                  variant={possessionOwner === "away" ? "contained" : "outlined"}
+                  disabled={possessionSaving}
+                  onClick={() => changePossession("away")}
+                  sx={{
+                    minWidth: 140,
+                    bgcolor: possessionOwner === "away" ? "#b71c1c" : undefined,
+                    borderColor: "#b71c1c",
+                    color: possessionOwner === "away" ? "#fff" : "#b71c1c",
+                    fontWeight: 1000,
+                    fontSize: 16,
+                    py: 1.5,
+                    "&:hover": { bgcolor: "#b71c1c", color: "#fff" },
+                  }}
+                >
+                  {selectedGame.opponent?.teamName || "Away"} Possession
+                </Button>
+              </Stack>
+
             </Paper>
           )}
         </Stack>
