@@ -18,6 +18,11 @@ import {
   TextField,
   Divider,
   Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
   Table,
   TableHead,
   TableBody,
@@ -37,7 +42,7 @@ type Game = {
   teamId: string;
   gameDate: string;
   gameType: string;
-  opponent?: { teamName?: string };
+  opponent?: { teamName?: string; roster?: { number: number; name: string }[] };
   status?: "scheduled" | "live" | "intermission" | "final";
   currentPeriod?: number;
   clockSecondsRemaining?: number;
@@ -122,11 +127,6 @@ const formatClock = (seconds: number) => {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 };
 
-const parseClockToSeconds = (value: string) => {
-  const [m, s] = value.split(":").map(Number);
-  if (!Number.isFinite(m) || !Number.isFinite(s)) return PERIOD_LENGTH_SECONDS;
-  return Math.max(0, Math.min(PERIOD_LENGTH_SECONDS, m * 60 + s));
-};
 
 const getGameSecondsElapsed = (period: number, secondsRemaining: number) => {
   const elapsedBeforePeriod = (Math.max(1, period) - 1) * PERIOD_LENGTH_SECONDS;
@@ -207,6 +207,7 @@ export default function StatTrackerPage() {
   const [clockSecondsRemaining, setClockSecondsRemaining] = useState<number>(PERIOD_LENGTH_SECONDS);
   const [isClockRunning, setIsClockRunning] = useState(false);
   const [endingGame, setEndingGame] = useState(false);
+  const [confirmEndOpen, setConfirmEndOpen] = useState(false);
 
   // Faceoff state
   const [faceoffHomePlayer, setFaceoffHomePlayer] = useState<Player | null>(null);
@@ -1054,12 +1055,24 @@ export default function StatTrackerPage() {
                     </Select>
                   </FormControl>
 
-                  <TextField
-                    label="Clock Remaining"
-                    value={formatClock(clockSecondsRemaining)}
-                    onChange={(e) => setClockSecondsRemaining(parseClockToSeconds(e.target.value))}
-                    sx={greenFieldSx}
-                  />
+                  <Stack direction="row" spacing={0.5}>
+                    <Button
+                      variant="outlined"
+                      onClick={() => setClockSecondsRemaining((prev) => Math.min(PERIOD_LENGTH_SECONDS, prev + 1))}
+                      disabled={selectedGame?.status === 'final'}
+                      sx={{ borderColor: GREEN, color: GREEN, fontWeight: 900, minWidth: 70 }}
+                    >
+                      +1 Sec
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      onClick={() => setClockSecondsRemaining((prev) => Math.max(0, prev - 1))}
+                      disabled={selectedGame?.status === 'final'}
+                      sx={{ borderColor: GREEN, color: GREEN, fontWeight: 900, minWidth: 70 }}
+                    >
+                      -1 Sec
+                    </Button>
+                  </Stack>
 
                   <Paper
                     elevation={0}
@@ -1098,7 +1111,7 @@ export default function StatTrackerPage() {
 
                   <Button
                     variant="contained"
-                    onClick={endGame}
+                    onClick={() => setConfirmEndOpen(true)}
                     disabled={endingGame || selectedGame?.status === 'final'}
                     sx={{
                       bgcolor: "#b71c1c",
@@ -1821,6 +1834,30 @@ export default function StatTrackerPage() {
             </Paper>
           )}
         </Stack>
+
+        <Dialog open={confirmEndOpen} onClose={() => setConfirmEndOpen(false)}>
+          <DialogTitle sx={{ fontWeight: 900, color: "#b71c1c" }}>End Game?</DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              Are you sure you want to end the game? This action cannot be undone.
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={() => setConfirmEndOpen(false)}
+              sx={{ color: GREEN, fontWeight: 900 }}
+            >
+              No
+            </Button>
+            <Button
+              onClick={() => { setConfirmEndOpen(false); endGame(); }}
+              variant="contained"
+              sx={{ bgcolor: "#b71c1c", fontWeight: 900, "&:hover": { bgcolor: "#8b0000" } }}
+            >
+              Yes, End Game
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         <AnimatePresence>
           {editingPlayerId && editingPlayer && (
