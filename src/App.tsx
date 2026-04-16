@@ -45,6 +45,7 @@ function App() {
             <Route path="/stattracker" element={<ProtectedRoute><StatTrackerPage /></ProtectedRoute>} />
             <Route path="/gamehistory" element={<ProtectedRoute><GameHistory /></ProtectedRoute>} />
             <Route path="/gamestats/:gameId" element={<ProtectedRoute><GameStats /></ProtectedRoute>} />
+            <Route path="/gamestats/:gameId/live" element={<ProtectedRoute><GameStats /></ProtectedRoute>} />
             <Route path="/opponent-overview" element={<ProtectedRoute><OpponentOverview /></ProtectedRoute>} />
             <Route path="/assign-roles" element={<ProtectedRoute requiredRole="coach"><StatRoleAssignPage /></ProtectedRoute>} />
             <Route path="/approve-members" element={<ProtectedRoute requiredRole="coach"><ApproveProfilePage /></ProtectedRoute>} />

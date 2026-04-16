@@ -18,6 +18,12 @@ import {
   TextField,
   Divider,
   Button,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  TableContainer,
 } from "@mui/material";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -62,6 +68,38 @@ type StatLine = {
   plusMinus: number;
   saves: number;
   goalsAgainst: number;
+  faceoffsWon: number;
+  faceoffsLost: number;
+};
+
+type OpponentPlayer = {
+  number: number;
+  name: string;
+};
+
+type FaceoffRecord = {
+  _id: string;
+  gameId: string;
+  teamId: string;
+  homePlayerId: string;
+  homePlayerName: string;
+  homePlayerNumber: number;
+  awayPlayerName: string;
+  awayPlayerNumber: number;
+  winner: "home" | "away";
+  timestamp: string;
+};
+
+type HitPenaltyRecord = {
+  _id: string;
+  gameId: string;
+  teamId: string;
+  playerId: string;
+  playerName: string;
+  playerNumber: number;
+  type: "hit" | "penalty";
+  penaltyMinutes: number;
+  timestamp: string;
 };
 
 const API = {
@@ -69,6 +107,8 @@ const API = {
   games: "/api/games",
   players: "/api/players",
   stats: "/api/stats",
+  faceoffs: "/api/faceoffs",
+  hitPenalties: "/api/hit-penalties",
 };
 
 const PERIOD_LENGTH_SECONDS = 20 * 60;
@@ -174,6 +214,18 @@ export default function StatTrackerPage() {
   const [clockSecondsRemaining, setClockSecondsRemaining] = useState<number>(PERIOD_LENGTH_SECONDS);
   const [isClockRunning, setIsClockRunning] = useState(false);
   const [endingGame, setEndingGame] = useState(false);
+
+  // Faceoff state
+  const [faceoffHomePlayer, setFaceoffHomePlayer] = useState<Player | null>(null);
+  const [faceoffAwayPlayer, setFaceoffAwayPlayer] = useState<OpponentPlayer | null>(null);
+  const [faceoffs, setFaceoffs] = useState<FaceoffRecord[]>([]);
+  const [faceoffSaving, setFaceoffSaving] = useState(false);
+
+  // Hit/Penalty state
+  const [hitPenalties, setHitPenalties] = useState<HitPenaltyRecord[]>([]);
+  const [hpSaving, setHpSaving] = useState(false);
+  const [hpPenaltyPlayer, setHpPenaltyPlayer] = useState<Player | null>(null);
+  const [hpPenaltyMinutes, setHpPenaltyMinutes] = useState<number>(2);
 
   useEffect(() => {
     if (!isClockRunning) return;
@@ -285,6 +337,8 @@ export default function StatTrackerPage() {
               plusMinus: 0,
               saves: 0,
               goalsAgainst: 0,
+              faceoffsWon: 0,
+              faceoffsLost: 0,
             };
           } else {
             map[p._id] = {
@@ -297,6 +351,8 @@ export default function StatTrackerPage() {
               plusMinus: map[p._id].plusMinus ?? 0,
               saves: map[p._id].saves ?? 0,
               goalsAgainst: map[p._id].goalsAgainst ?? 0,
+              faceoffsWon: map[p._id].faceoffsWon ?? 0,
+              faceoffsLost: map[p._id].faceoffsLost ?? 0,
             };
           }
         }
@@ -431,6 +487,258 @@ export default function StatTrackerPage() {
   const onTeamChange = (e: SelectChangeEvent) => setTeamId(e.target.value);
   const onGameChange = (e: SelectChangeEvent) => setGameId(e.target.value);
 
+  // Fetch faceoffs when game is selected
+  useEffect(() => {
+    if (!gameId) {
+      setFaceoffs([]);
+      setFaceoffHomePlayer(null);
+      setFaceoffAwayPlayer(null);
+      setHitPenalties([]);
+      setHpPenaltyPlayer(null);
+      return;
+    }
+    (async () => {
+      try {
+        const [fRes, hpRes] = await Promise.all([
+          authFetch(`${API.faceoffs}?gameId=${encodeURIComponent(gameId)}`),
+          authFetch(`${API.hitPenalties}?gameId=${encodeURIComponent(gameId)}`),
+        ]);
+        if (fRes.ok) {
+          const data = await fRes.json();
+          setFaceoffs(Array.isArray(data) ? data : []);
+        }
+        if (hpRes.ok) {
+          const data = await hpRes.json();
+          setHitPenalties(Array.isArray(data) ? data : []);
+        }
+      } catch (e) {
+        console.error("Failed to load faceoffs / hit-penalties", e);
+      }
+    })();
+  }, [gameId, authFetch]);
+
+  const opponentRoster = useMemo<OpponentPlayer[]>(() => {
+    if (!selectedGame?.opponent?.roster) return [];
+    return [...selectedGame.opponent.roster].sort((a, b) => a.number - b.number);
+  }, [selectedGame]);
+
+  // Helper: get or create a default stat line for a player, then increment a field and bulkSave
+  const incrementStatAndSave = async (playerId: string, field: keyof StatLine, amount: number) => {
+    let line = linesByPlayerId[playerId];
+    if (!line) {
+      line = {
+        gameId,
+        teamId,
+        playerId,
+        goals: 0, assists: 0, shots: 0, hits: 0, pim: 0,
+        plusMinus: 0, saves: 0, goalsAgainst: 0, faceoffsWon: 0, faceoffsLost: 0,
+      };
+    }
+    const updated: StatLine = { ...line, [field]: (line[field] as number) + amount };
+    setLinesByPlayerId((prev) => ({ ...prev, [playerId]: updated }));
+
+    const gameSecondsElapsed = getGameSecondsElapsed(currentPeriod, clockSecondsRemaining);
+    await authFetch(`${API.stats}/bulk`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        teamId,
+        gameId,
+        lines: [{
+          playerId: updated.playerId,
+          goals: updated.goals, assists: updated.assists, shots: updated.shots,
+          hits: updated.hits, pim: updated.pim, plusMinus: updated.plusMinus,
+          saves: updated.saves, goalsAgainst: updated.goalsAgainst,
+          faceoffsWon: updated.faceoffsWon, faceoffsLost: updated.faceoffsLost,
+        }],
+        historyMeta: { period: currentPeriod, clockSecondsRemaining, gameSecondsElapsed },
+      }),
+    });
+  };
+
+  const recordFaceoff = async (winner: "home" | "away") => {
+    if (!faceoffHomePlayer || !faceoffAwayPlayer || !gameId || !teamId) return;
+    setFaceoffSaving(true);
+    try {
+      const res = await authFetch(API.faceoffs, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gameId,
+          teamId,
+          homePlayerId: faceoffHomePlayer._id,
+          homePlayerName: faceoffHomePlayer.name,
+          homePlayerNumber: faceoffHomePlayer.number,
+          awayPlayerName: faceoffAwayPlayer.name,
+          awayPlayerNumber: faceoffAwayPlayer.number,
+          winner,
+        }),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        setFaceoffs((prev) => [created, ...prev]);
+        // Also update the home player's stat line via bulkSave
+        const faceoffField = winner === "home" ? "faceoffsWon" : "faceoffsLost";
+        await incrementStatAndSave(faceoffHomePlayer._id, faceoffField, 1);
+        setFaceoffHomePlayer(null);
+        setFaceoffAwayPlayer(null);
+        setMsg({ type: "success", text: `Faceoff recorded — ${winner === "home" ? "Home" : "Away"} wins!` });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setMsg({ type: "error", text: data?.error || "Failed to save faceoff." });
+      }
+    } catch (e) {
+      console.error(e);
+      setMsg({ type: "error", text: "Failed to save faceoff." });
+    } finally {
+      setFaceoffSaving(false);
+    }
+  };
+
+  const undoFaceoff = async () => {
+    if (!gameId) return;
+    setFaceoffSaving(true);
+    try {
+      const res = await authFetch(`${API.faceoffs}/undo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gameId }),
+      });
+      if (res.ok) {
+        setFaceoffs((prev) => prev.slice(1));
+        setMsg({ type: "success", text: "Last faceoff undone." });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setMsg({ type: "error", text: data?.error || "Failed to undo faceoff." });
+      }
+    } catch (e) {
+      console.error(e);
+      setMsg({ type: "error", text: "Failed to undo faceoff." });
+    } finally {
+      setFaceoffSaving(false);
+    }
+  };
+
+  const faceoffStats = useMemo(() => {
+    let homeWins = 0;
+    let awayWins = 0;
+    for (const f of faceoffs) {
+      if (f.winner === "home") homeWins++;
+      else awayWins++;
+    }
+    return { homeWins, awayWins, total: faceoffs.length };
+  }, [faceoffs]);
+
+  // ── Hit/Penalty helpers ──
+  const recordHit = async (player: Player) => {
+    if (!gameId || !teamId) return;
+    setHpSaving(true);
+    try {
+      const res = await authFetch(API.hitPenalties, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gameId,
+          teamId,
+          playerId: player._id,
+          playerName: player.name,
+          playerNumber: player.number,
+          type: "hit",
+        }),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        setHitPenalties((prev) => [created, ...prev]);
+        // Also update the player's stat line (hits +1) via bulkSave
+        await incrementStatAndSave(player._id, "hits", 1);
+        setMsg({ type: "success", text: `Hit recorded for #${player.number} ${player.name}` });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setMsg({ type: "error", text: data?.error || "Failed to save hit." });
+      }
+    } catch (e) {
+      console.error(e);
+      setMsg({ type: "error", text: "Failed to save hit." });
+    } finally {
+      setHpSaving(false);
+    }
+  };
+
+  const submitPenalty = async () => {
+    if (!hpPenaltyPlayer || !gameId || !teamId) return;
+    setHpSaving(true);
+    try {
+      const res = await authFetch(API.hitPenalties, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gameId,
+          teamId,
+          playerId: hpPenaltyPlayer._id,
+          playerName: hpPenaltyPlayer.name,
+          playerNumber: hpPenaltyPlayer.number,
+          type: "penalty",
+          penaltyMinutes: hpPenaltyMinutes,
+        }),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        setHitPenalties((prev) => [created, ...prev]);
+        // Also update the player's stat line (pim += penaltyMinutes) via bulkSave
+        await incrementStatAndSave(hpPenaltyPlayer._id, "pim", hpPenaltyMinutes);
+        setMsg({ type: "success", text: `Penalty recorded: #${hpPenaltyPlayer.number} ${hpPenaltyPlayer.name} — ${hpPenaltyMinutes} min` });
+        setHpPenaltyPlayer(null);
+        setHpPenaltyMinutes(2);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setMsg({ type: "error", text: data?.error || "Failed to save penalty." });
+      }
+    } catch (e) {
+      console.error(e);
+      setMsg({ type: "error", text: "Failed to save penalty." });
+    } finally {
+      setHpSaving(false);
+    }
+  };
+
+  const undoHitPenalty = async () => {
+    if (!gameId) return;
+    setHpSaving(true);
+    try {
+      const res = await authFetch(`${API.hitPenalties}/undo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gameId }),
+      });
+      if (res.ok) {
+        setHitPenalties((prev) => prev.slice(1));
+        setMsg({ type: "success", text: "Last hit/penalty undone." });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setMsg({ type: "error", text: data?.error || "Failed to undo hit/penalty." });
+      }
+    } catch (e) {
+      console.error(e);
+      setMsg({ type: "error", text: "Failed to undo hit/penalty." });
+    } finally {
+      setHpSaving(false);
+    }
+  };
+
+  const hpStats = useMemo(() => {
+    let totalHits = 0;
+    let totalPenalties = 0;
+    let totalPIM = 0;
+    for (const r of hitPenalties) {
+      if (r.type === "hit") totalHits++;
+      else {
+        totalPenalties++;
+        totalPIM += r.penaltyMinutes || 0;
+      }
+    }
+    return { totalHits, totalPenalties, totalPIM, total: hitPenalties.length };
+  }, [hitPenalties]);
+
   const editingPlayer = useMemo(() => {
     if (!editingPlayerId) return null;
     return sortedPlayers.find((p) => p._id === editingPlayerId) || null;
@@ -452,6 +760,8 @@ export default function StatTrackerPage() {
         plusMinus: 0,
         saves: 0,
         goalsAgainst: 0,
+        faceoffsWon: 0,
+        faceoffsLost: 0,
       };
 
       setLinesByPlayerId((prev) => ({
@@ -496,6 +806,8 @@ export default function StatTrackerPage() {
         plusMinus: nextLine.plusMinus,
         saves: nextLine.saves,
         goalsAgainst: nextLine.goalsAgainst,
+        faceoffsWon: nextLine.faceoffsWon,
+        faceoffsLost: nextLine.faceoffsLost,
       };
 
       const gameSecondsElapsed = getGameSecondsElapsed(currentPeriod, clockSecondsRemaining);
@@ -797,6 +1109,536 @@ export default function StatTrackerPage() {
               </Stack>
             )}
           </Paper>
+
+          {/* ── Faceoff Tracker Section ── */}
+          {selectedGame && opponentRoster.length > 0 && (
+            <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
+              <Typography
+                sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}
+              >
+                Faceoff Tracker
+              </Typography>
+
+              {/* Summary */}
+              <Stack direction="row" justifyContent="center" spacing={3} sx={{ mb: 2 }}>
+                <Typography sx={{ color: GREEN, fontWeight: 900 }}>
+                  Home Wins: {faceoffStats.homeWins}
+                </Typography>
+                <Typography sx={{ color: GREEN, fontWeight: 900 }}>
+                  Away Wins: {faceoffStats.awayWins}
+                </Typography>
+                <Typography sx={{ color: GREEN, fontWeight: 900 }}>
+                  Total: {faceoffStats.total}
+                </Typography>
+              </Stack>
+
+              <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
+                {/* Home Team Table */}
+                <Box sx={{ flex: 1, width: "100%" }}>
+                  <Typography sx={{ color: GREEN, fontWeight: 900, mb: 1, textAlign: "center" }}>
+                    Home Team
+                  </Typography>
+                  <TableContainer component={Paper} elevation={2} sx={{ maxHeight: 350, overflow: "auto" }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>#</TableCell>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>Name</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 900, color: GREEN }}>Select</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {sortedPlayers.map((p) => (
+                          <TableRow
+                            key={p._id}
+                            selected={faceoffHomePlayer?._id === p._id}
+                            sx={{
+                              cursor: "pointer",
+                              bgcolor: faceoffHomePlayer?._id === p._id ? "rgba(0,95,2,0.12)" : undefined,
+                              "&:hover": { bgcolor: "rgba(0,95,2,0.06)" },
+                            }}
+                            onClick={() => setFaceoffHomePlayer(p)}
+                          >
+                            <TableCell sx={{ fontWeight: 800 }}>{p.number}</TableCell>
+                            <TableCell>{p.name}</TableCell>
+                            <TableCell align="right">
+                              <Button
+                                size="small"
+                                variant={faceoffHomePlayer?._id === p._id ? "contained" : "outlined"}
+                                onClick={(e) => { e.stopPropagation(); setFaceoffHomePlayer(p); }}
+                                sx={{
+                                  minWidth: 60,
+                                  bgcolor: faceoffHomePlayer?._id === p._id ? GREEN : undefined,
+                                  borderColor: GREEN,
+                                  color: faceoffHomePlayer?._id === p._id ? CREAM : GREEN,
+                                  fontWeight: 900,
+                                  "&:hover": { bgcolor: GREEN, color: CREAM },
+                                }}
+                              >
+                                {faceoffHomePlayer?._id === p._id ? "✓" : "Add"}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+
+                {/* Faceoff Center Element */}
+                <Box sx={{ flex: 1, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 300 }}>
+                  <Paper
+                    elevation={4}
+                    sx={{
+                      p: 3,
+                      borderRadius: 4,
+                      bgcolor: GREEN,
+                      color: CREAM,
+                      width: "100%",
+                      maxWidth: 320,
+                      textAlign: "center",
+                    }}
+                  >
+                    <Typography sx={{ fontWeight: 1000, fontSize: 18, mb: 2, color: CREAM }}>
+                      Current Faceoff
+                    </Typography>
+
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+                      <Box>
+                        <Typography sx={{ fontWeight: 900, fontSize: 14, opacity: 0.8, color: CREAM }}>HOME</Typography>
+                        {faceoffHomePlayer ? (
+                          <>
+                            <Typography sx={{ fontWeight: 1000, fontSize: 28, color: CREAM }}>
+                              #{faceoffHomePlayer.number}
+                            </Typography>
+                            <Typography sx={{ fontWeight: 800, fontSize: 13, color: CREAM }}>
+                              {faceoffHomePlayer.name}
+                            </Typography>
+                          </>
+                        ) : (
+                          <Typography sx={{ fontWeight: 700, fontSize: 14, opacity: 0.6, color: CREAM }}>
+                            Select player
+                          </Typography>
+                        )}
+                      </Box>
+
+                      <Typography sx={{ fontWeight: 1000, fontSize: 22, color: CREAM }}>VS</Typography>
+
+                      <Box>
+                        <Typography sx={{ fontWeight: 900, fontSize: 14, opacity: 0.8, color: CREAM }}>AWAY</Typography>
+                        {faceoffAwayPlayer ? (
+                          <>
+                            <Typography sx={{ fontWeight: 1000, fontSize: 28, color: CREAM }}>
+                              #{faceoffAwayPlayer.number}
+                            </Typography>
+                            <Typography sx={{ fontWeight: 800, fontSize: 13, color: CREAM }}>
+                              {faceoffAwayPlayer.name}
+                            </Typography>
+                          </>
+                        ) : (
+                          <Typography sx={{ fontWeight: 700, fontSize: 14, opacity: 0.6, color: CREAM }}>
+                            Select player
+                          </Typography>
+                        )}
+                      </Box>
+                    </Stack>
+
+                    <Divider sx={{ borderColor: "rgba(255,255,255,0.3)", mb: 2 }} />
+
+                    <Stack direction="row" spacing={1} justifyContent="center">
+                      <Button
+                        variant="contained"
+                        disabled={!faceoffHomePlayer || !faceoffAwayPlayer || faceoffSaving}
+                        onClick={() => recordFaceoff("home")}
+                        sx={{
+                          bgcolor: CREAM,
+                          color: GREEN,
+                          fontWeight: 1000,
+                          "&:hover": { bgcolor: "#e6d9b8" },
+                          "&:disabled": { bgcolor: "rgba(255,255,255,0.3)", color: "rgba(255,255,255,0.5)" },
+                        }}
+                      >
+                        Home Win
+                      </Button>
+                      <Button
+                        variant="contained"
+                        disabled={!faceoffHomePlayer || !faceoffAwayPlayer || faceoffSaving}
+                        onClick={() => recordFaceoff("away")}
+                        sx={{
+                          bgcolor: CREAM,
+                          color: GREEN,
+                          fontWeight: 1000,
+                          "&:hover": { bgcolor: "#e6d9b8" },
+                          "&:disabled": { bgcolor: "rgba(255,255,255,0.3)", color: "rgba(255,255,255,0.5)" },
+                        }}
+                      >
+                        Away Win
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        disabled={faceoffs.length === 0 || faceoffSaving}
+                        onClick={undoFaceoff}
+                        sx={{
+                          borderColor: CREAM,
+                          color: CREAM,
+                          fontWeight: 900,
+                          "&:hover": { borderColor: "#e6d9b8", bgcolor: "rgba(255,255,255,0.1)" },
+                          "&:disabled": { borderColor: "rgba(255,255,255,0.3)", color: "rgba(255,255,255,0.5)" },
+                        }}
+                      >
+                        Undo
+                      </Button>
+                    </Stack>
+                  </Paper>
+                </Box>
+
+                {/* Away Team Table */}
+                <Box sx={{ flex: 1, width: "100%" }}>
+                  <Typography sx={{ color: GREEN, fontWeight: 900, mb: 1, textAlign: "center" }}>
+                    {selectedGame.opponent?.teamName || "Opponent"}
+                  </Typography>
+                  <TableContainer component={Paper} elevation={2} sx={{ maxHeight: 350, overflow: "auto" }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>#</TableCell>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>Name</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 900, color: GREEN }}>Select</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {opponentRoster.map((p, idx) => (
+                          <TableRow
+                            key={`opp-${idx}`}
+                            selected={faceoffAwayPlayer?.number === p.number && faceoffAwayPlayer?.name === p.name}
+                            sx={{
+                              cursor: "pointer",
+                              bgcolor: faceoffAwayPlayer?.number === p.number && faceoffAwayPlayer?.name === p.name ? "rgba(0,95,2,0.12)" : undefined,
+                              "&:hover": { bgcolor: "rgba(0,95,2,0.06)" },
+                            }}
+                            onClick={() => setFaceoffAwayPlayer(p)}
+                          >
+                            <TableCell sx={{ fontWeight: 800 }}>{p.number}</TableCell>
+                            <TableCell>{p.name}</TableCell>
+                            <TableCell align="right">
+                              <Button
+                                size="small"
+                                variant={faceoffAwayPlayer?.number === p.number && faceoffAwayPlayer?.name === p.name ? "contained" : "outlined"}
+                                onClick={(e) => { e.stopPropagation(); setFaceoffAwayPlayer(p); }}
+                                sx={{
+                                  minWidth: 60,
+                                  bgcolor: faceoffAwayPlayer?.number === p.number && faceoffAwayPlayer?.name === p.name ? GREEN : undefined,
+                                  borderColor: GREEN,
+                                  color: faceoffAwayPlayer?.number === p.number && faceoffAwayPlayer?.name === p.name ? CREAM : GREEN,
+                                  fontWeight: 900,
+                                  "&:hover": { bgcolor: GREEN, color: CREAM },
+                                }}
+                              >
+                                {faceoffAwayPlayer?.number === p.number && faceoffAwayPlayer?.name === p.name ? "✓" : "Add"}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              </Stack>
+            </Paper>
+          )}
+
+          {/* ── Hit & Penalty Tracker Section ── */}
+          {selectedGame && (
+            <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
+              <Typography
+                sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}
+              >
+                Hit & Penalty Tracker
+              </Typography>
+
+              {/* Summary */}
+              <Stack direction="row" justifyContent="center" spacing={3} sx={{ mb: 2 }}>
+                <Typography sx={{ color: GREEN, fontWeight: 900 }}>
+                  Hits: {hpStats.totalHits}
+                </Typography>
+                <Typography sx={{ color: GREEN, fontWeight: 900 }}>
+                  Penalties: {hpStats.totalPenalties}
+                </Typography>
+                <Typography sx={{ color: GREEN, fontWeight: 900 }}>
+                  PIM: {hpStats.totalPIM}
+                </Typography>
+              </Stack>
+
+              <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
+                {/* Home Team Table */}
+                <Box sx={{ flex: 1, width: "100%" }}>
+                  <Typography sx={{ color: GREEN, fontWeight: 900, mb: 1, textAlign: "center" }}>
+                    Home Team
+                  </Typography>
+                  <TableContainer component={Paper} elevation={2} sx={{ maxHeight: 350, overflow: "auto" }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>#</TableCell>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>Name</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Hit</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Penalty</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {sortedPlayers.map((p) => (
+                          <TableRow key={`hp-home-${p._id}`} sx={{ "&:hover": { bgcolor: "rgba(0,95,2,0.06)" } }}>
+                            <TableCell sx={{ fontWeight: 800 }}>{p.number}</TableCell>
+                            <TableCell>{p.name}</TableCell>
+                            <TableCell align="center">
+                              <Button
+                                size="small"
+                                variant="contained"
+                                disabled={hpSaving}
+                                onClick={() => recordHit(p)}
+                                sx={{
+                                  minWidth: 50,
+                                  bgcolor: GREEN,
+                                  color: CREAM,
+                                  fontWeight: 900,
+                                  "&:hover": { bgcolor: "#004a01" },
+                                }}
+                              >
+                                Hit
+                              </Button>
+                            </TableCell>
+                            <TableCell align="center">
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                disabled={hpSaving}
+                                onClick={() => { setHpPenaltyPlayer(p); setHpPenaltyMinutes(2); }}
+                                sx={{
+                                  minWidth: 70,
+                                  borderColor: "#b71c1c",
+                                  color: "#b71c1c",
+                                  fontWeight: 900,
+                                  "&:hover": { bgcolor: "rgba(183,28,28,0.08)", borderColor: "#8b0000" },
+                                }}
+                              >
+                                Penalty
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+
+                {/* Center Panel */}
+                <Box sx={{ flex: 1, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 300 }}>
+                  <Paper
+                    elevation={4}
+                    sx={{
+                      p: 3,
+                      borderRadius: 4,
+                      bgcolor: GREEN,
+                      color: CREAM,
+                      width: "100%",
+                      maxWidth: 320,
+                      textAlign: "center",
+                    }}
+                  >
+                    {hpPenaltyPlayer ? (
+                      <>
+                        <Typography sx={{ fontWeight: 1000, fontSize: 18, mb: 2, color: CREAM }}>
+                          Record Penalty
+                        </Typography>
+                        <Typography sx={{ fontWeight: 1000, fontSize: 28, color: CREAM }}>
+                          #{hpPenaltyPlayer.number}
+                        </Typography>
+                        <Typography sx={{ fontWeight: 800, fontSize: 14, mb: 2, color: CREAM }}>
+                          {hpPenaltyPlayer.name}
+                        </Typography>
+
+                        <FormControl fullWidth sx={{ mb: 2 }}>
+                          <InputLabel sx={{ color: CREAM, fontWeight: 700, "&.Mui-focused": { color: CREAM } }}>Minutes</InputLabel>
+                          <Select
+                            value={String(hpPenaltyMinutes)}
+                            label="Minutes"
+                            onChange={(e) => setHpPenaltyMinutes(Number(e.target.value))}
+                            sx={{
+                              color: CREAM,
+                              fontWeight: 900,
+                              "& .MuiOutlinedInput-notchedOutline": { borderColor: "rgba(255,255,255,0.5)" },
+                              "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: CREAM },
+                              "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: CREAM },
+                              "& .MuiSelect-icon": { color: CREAM },
+                            }}
+                            MenuProps={{
+                              PaperProps: {
+                                sx: { "& .MuiMenuItem-root": { fontWeight: 800 } },
+                              },
+                            }}
+                          >
+                            <MenuItem value="2">2 Minutes</MenuItem>
+                            <MenuItem value="4">4 Minutes</MenuItem>
+                            <MenuItem value="5">5 Minutes</MenuItem>
+                            <MenuItem value="10">10 Minutes</MenuItem>
+                          </Select>
+                        </FormControl>
+
+                        <Stack direction="row" spacing={1} justifyContent="center">
+                          <Button
+                            variant="contained"
+                            disabled={hpSaving}
+                            onClick={submitPenalty}
+                            sx={{
+                              bgcolor: CREAM,
+                              color: GREEN,
+                              fontWeight: 1000,
+                              "&:hover": { bgcolor: "#e6d9b8" },
+                              "&:disabled": { bgcolor: "rgba(255,255,255,0.3)", color: "rgba(255,255,255,0.5)" },
+                            }}
+                          >
+                            {hpSaving ? "Saving…" : "Submit Penalty"}
+                          </Button>
+                          <Button
+                            variant="outlined"
+                            onClick={() => setHpPenaltyPlayer(null)}
+                            sx={{
+                              borderColor: CREAM,
+                              color: CREAM,
+                              fontWeight: 900,
+                              "&:hover": { borderColor: "#e6d9b8", bgcolor: "rgba(255,255,255,0.1)" },
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </Stack>
+                      </>
+                    ) : (
+                      <>
+                        <Typography sx={{ fontWeight: 1000, fontSize: 18, mb: 2, color: CREAM }}>
+                          Hit & Penalty Actions
+                        </Typography>
+                        <Typography sx={{ fontWeight: 700, fontSize: 14, opacity: 0.7, mb: 2, color: CREAM }}>
+                          Press "Hit" to instantly record a hit. Press "Penalty" to select minutes.
+                        </Typography>
+                      </>
+                    )}
+
+                    <Divider sx={{ borderColor: "rgba(255,255,255,0.3)", my: 2 }} />
+
+                    <Button
+                      variant="outlined"
+                      disabled={hitPenalties.length === 0 || hpSaving}
+                      onClick={undoHitPenalty}
+                      sx={{
+                        borderColor: CREAM,
+                        color: CREAM,
+                        fontWeight: 900,
+                        "&:hover": { borderColor: "#e6d9b8", bgcolor: "rgba(255,255,255,0.1)" },
+                        "&:disabled": { borderColor: "rgba(255,255,255,0.3)", color: "rgba(255,255,255,0.5)" },
+                      }}
+                    >
+                      Undo Last
+                    </Button>
+                  </Paper>
+                </Box>
+
+                {/* Away Team Table */}
+                <Box sx={{ flex: 1, width: "100%" }}>
+                  <Typography sx={{ color: GREEN, fontWeight: 900, mb: 1, textAlign: "center" }}>
+                    {selectedGame.opponent?.teamName || "Opponent"}
+                  </Typography>
+                  <TableContainer component={Paper} elevation={2} sx={{ maxHeight: 350, overflow: "auto" }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>#</TableCell>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>Name</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Hit</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Penalty</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {opponentRoster.map((p, idx) => (
+                          <TableRow key={`hp-opp-${idx}`} sx={{ "&:hover": { bgcolor: "rgba(0,95,2,0.06)" } }}>
+                            <TableCell sx={{ fontWeight: 800 }}>{p.number}</TableCell>
+                            <TableCell>{p.name}</TableCell>
+                            <TableCell align="center">
+                              <Button
+                                size="small"
+                                variant="contained"
+                                disabled={hpSaving}
+                                onClick={async () => {
+                                  if (!gameId || !teamId) return;
+                                  setHpSaving(true);
+                                  try {
+                                    const res = await authFetch(API.hitPenalties, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({
+                                        gameId,
+                                        teamId,
+                                        playerId: "000000000000000000000000",
+                                        playerName: p.name,
+                                        playerNumber: p.number,
+                                        type: "hit",
+                                      }),
+                                    });
+                                    if (res.ok) {
+                                      const created = await res.json();
+                                      setHitPenalties((prev) => [created, ...prev]);
+                                      setMsg({ type: "success", text: `Hit recorded for #${p.number} ${p.name}` });
+                                    } else {
+                                      const data = await res.json().catch(() => ({}));
+                                      setMsg({ type: "error", text: data?.error || "Failed to save hit." });
+                                    }
+                                  } catch (e) {
+                                    console.error(e);
+                                    setMsg({ type: "error", text: "Failed to save hit." });
+                                  } finally {
+                                    setHpSaving(false);
+                                  }
+                                }}
+                                sx={{
+                                  minWidth: 50,
+                                  bgcolor: GREEN,
+                                  color: CREAM,
+                                  fontWeight: 900,
+                                  "&:hover": { bgcolor: "#004a01" },
+                                }}
+                              >
+                                Hit
+                              </Button>
+                            </TableCell>
+                            <TableCell align="center">
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                disabled={hpSaving}
+                                onClick={() => {
+                                  setHpPenaltyPlayer({ _id: "000000000000000000000000", name: p.name, number: p.number, teamId: "" } as Player);
+                                  setHpPenaltyMinutes(2);
+                                }}
+                                sx={{
+                                  minWidth: 70,
+                                  borderColor: "#b71c1c",
+                                  color: "#b71c1c",
+                                  fontWeight: 900,
+                                  "&:hover": { bgcolor: "rgba(183,28,28,0.08)", borderColor: "#8b0000" },
+                                }}
+                              >
+                                Penalty
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              </Stack>
+            </Paper>
+          )}
         </Stack>
 
         <AnimatePresence>
@@ -873,6 +1715,8 @@ export default function StatTrackerPage() {
                             <MenuItem value="plusMinus">Plus/Minus</MenuItem>
                             <MenuItem value="saves">Saves</MenuItem>
                             <MenuItem value="goalsAgainst">Goals Against</MenuItem>
+                            <MenuItem value="faceoffsWon">Faceoffs Won</MenuItem>
+                            <MenuItem value="faceoffsLost">Faceoffs Lost</MenuItem>
                           </Select>
                         </FormControl>
 

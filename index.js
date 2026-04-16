@@ -11,6 +11,8 @@ const teamController = require('./controller/teamController');
 const feedbackController = require('./controller/feedbackController');
 const statTrackerController = require('./controller/statTrackerController');
 const statRoleController = require("./controller/statRoleController");
+const faceoffController = require('./controller/faceoffController');
+const hitPenaltyController = require('./controller/hitPenaltyController');
 const notificationController = require('./controller/notificationController');
 const authController = require('./controller/authController');
 const userController = require('./controller/userController');
@@ -130,6 +132,20 @@ statsRouter.delete('/:id', authenticate, requireApproved, statTrackerController.
 statsRouter.delete('/', authenticate, requireApproved, statTrackerController.deleteAll);
 statsRouter.post('/bulk', authenticate, requireApproved, statTrackerController.bulkSave);
 app.use('/api/stats', statsRouter);
+
+// --- Faceoff routes (all require approved) ---
+const faceoffRouter = express.Router();
+faceoffRouter.get('/', authenticate, requireApproved, faceoffController.getByGame);
+faceoffRouter.post('/', authenticate, requireApproved, faceoffController.create);
+faceoffRouter.post('/undo', authenticate, requireApproved, faceoffController.undoLast);
+app.use('/api/faceoffs', faceoffRouter);
+
+// --- Hit/Penalty routes (all require approved) ---
+const hitPenaltyRouter = express.Router();
+hitPenaltyRouter.get('/', authenticate, requireApproved, hitPenaltyController.getByGame);
+hitPenaltyRouter.post('/', authenticate, requireApproved, hitPenaltyController.create);
+hitPenaltyRouter.post('/undo', authenticate, requireApproved, hitPenaltyController.undoLast);
+app.use('/api/hit-penalties', hitPenaltyRouter);
 
 // --- Stat roles routes (all require approved) ---
 const rolesRouter = express.Router();

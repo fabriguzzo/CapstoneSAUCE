@@ -14,7 +14,7 @@ function validateNonNegativeInt(n) {
 function validateStatPayload(body, { allowMissing = false } = {}) {
   // If allowMissing=true, only validate fields that exist (for PATCH)
   const fields = [
-    'goals', 'assists', 'shots', 'hits', 'pim', 'saves', 'goalsAgainst'
+    'goals', 'assists', 'shots', 'hits', 'pim', 'saves', 'goalsAgainst', 'faceoffsWon', 'faceoffsLost'
   ];
 
   for (const f of fields) {
@@ -65,6 +65,8 @@ exports.create = async function (req, res) {
       plusMinus: Number(req.body.plusMinus) || 0,
       saves: toIntOrZero(req.body.saves),
       goalsAgainst: toIntOrZero(req.body.goalsAgainst),
+      faceoffsWon: toIntOrZero(req.body.faceoffsWon),
+      faceoffsLost: toIntOrZero(req.body.faceoffsLost),
     };
 
     const created = await dao.create(statData);
@@ -203,6 +205,8 @@ exports.bulkSave = async function (req, res) {
         plusMinus: Number(l.plusMinus) || 0,
         saves: toIntOrZero(l.saves),
         goalsAgainst: toIntOrZero(l.goalsAgainst),
+        faceoffsWon: toIntOrZero(l.faceoffsWon),
+        faceoffsLost: toIntOrZero(l.faceoffsLost),
         period: Number(historyMeta.period) || 1,
         clockSecondsRemaining: Number.isFinite(Number(historyMeta.clockSecondsRemaining))
           ? Number(historyMeta.clockSecondsRemaining)

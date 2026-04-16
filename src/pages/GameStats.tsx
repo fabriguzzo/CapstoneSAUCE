@@ -70,6 +70,8 @@ interface StatHistoryEntry {
   plusMinus: number;
   saves: number;
   goalsAgainst: number;
+  faceoffsWon: number;
+  faceoffsLost: number;
 }
 
 const STAT_FIELDS = [
@@ -81,6 +83,8 @@ const STAT_FIELDS = [
   { key: "plusMinus", label: "+/-", color: "#3b82f6" },
   { key: "saves", label: "Saves", color: "#10b981" },
   { key: "goalsAgainst", label: "Goals Against", color: "#f43f5e" },
+  { key: "faceoffsWon", label: "Faceoffs Won", color: "#a855f7" },
+  { key: "faceoffsLost", label: "Faceoffs Lost", color: "#f97316" },
 ] as const;
 
 const CREAM = "#fff2d1";
@@ -193,13 +197,15 @@ export default function GameStats() {
     fetchData();
   }, [gameId]);
 
+  const isGameActive = game != null && game.status !== "final";
+
   useEffect(() => {
-    if (!gameId || !isLiveMode) return;
+    if (!gameId || (!isLiveMode && !isGameActive)) return;
     const interval = setInterval(() => {
       fetchData();
     }, 5000);
     return () => clearInterval(interval);
-  }, [gameId, isLiveMode]);
+  }, [gameId, isLiveMode, isGameActive]);
 
   const sortedHistory = useMemo(() => {
     return [...statHistory].sort((a, b) => {

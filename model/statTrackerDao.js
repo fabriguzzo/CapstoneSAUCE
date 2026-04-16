@@ -19,7 +19,9 @@ const StatHistorySchema = new mongoose.Schema(
     pim: { type: Number, default: 0, min: 0 },
     plusMinus: { type: Number, default: 0 },
     saves: { type: Number, default: 0, min: 0 },
-    goalsAgainst: { type: Number, default: 0, min: 0 }
+    goalsAgainst: { type: Number, default: 0, min: 0 },
+    faceoffsWon: { type: Number, default: 0, min: 0 },
+    faceoffsLost: { type: Number, default: 0, min: 0 }
   },
   { timestamps: true }
 );
@@ -42,7 +44,9 @@ const StatLineSchema = new mongoose.Schema(
     pim: { type: Number, default: 0, min: 0 },
     plusMinus: { type: Number, default: 0 },
     saves: { type: Number, default: 0, min: 0 },
-    goalsAgainst: { type: Number, default: 0, min: 0 }
+    goalsAgainst: { type: Number, default: 0, min: 0 },
+    faceoffsWon: { type: Number, default: 0, min: 0 },
+    faceoffsLost: { type: Number, default: 0, min: 0 }
   },
   { timestamps: true }
 );
@@ -72,7 +76,9 @@ const buildHistoryDoc = (statData) => ({
   pim: statData.pim || 0,
   plusMinus: statData.plusMinus || 0,
   saves: statData.saves || 0,
-  goalsAgainst: statData.goalsAgainst || 0
+  goalsAgainst: statData.goalsAgainst || 0,
+  faceoffsWon: statData.faceoffsWon || 0,
+  faceoffsLost: statData.faceoffsLost || 0
 });
 
 const saveHistory = async (statData) => {
@@ -200,6 +206,8 @@ exports.getFinalStatsForGames = async (gameIds) => {
         plusMinus: { $last: '$plusMinus' },
         saves: { $last: '$saves' },
         goalsAgainst: { $last: '$goalsAgainst' },
+        faceoffsWon: { $last: '$faceoffsWon' },
+        faceoffsLost: { $last: '$faceoffsLost' },
       }
     },
     { $project: { _id: 0 } }

@@ -138,7 +138,7 @@ export default function GameHistory() {
   };
 
   const handleLiveClick = (gameId: string) => {
-    navigate(`/games/${gameId}/live`);
+    navigate(`/gamestats/${gameId}/live`);
   };
 
   if (isLoading) {
