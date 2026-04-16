@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch";
+import { useAuth } from "../context/AuthContext";
 import {
   Alert,
   Box,
@@ -181,6 +182,7 @@ const greenMenuProps = {
 
 export default function StatTrackerPage() {
   const authFetch = useAuthFetch();
+  const { user } = useAuth();
 
   const [teams, setTeams] = useState<Team[]>([]);
   const [games, setGames] = useState<Game[]>([]);
@@ -264,7 +266,14 @@ export default function StatTrackerPage() {
       try {
         const res = await authFetch(API.teams);
         const data = await res.json();
-        setTeams(Array.isArray(data) ? data : []);
+        const all: Team[] = Array.isArray(data) ? data : [];
+        // Only show the team this user belongs to
+        const filtered = user?.teamId ? all.filter((t) => t._id === user.teamId) : all;
+        setTeams(filtered);
+        // Auto-select if there's only one option
+        if (filtered.length === 1) {
+          setTeamId(filtered[0]._id);
+        }
       } catch (e) {
         console.error(e);
         setMsg({ type: "error", text: "Failed to load teams." });
@@ -272,7 +281,7 @@ export default function StatTrackerPage() {
         setLoadingTeams(false);
       }
     })();
-  }, [authFetch]);
+  }, [authFetch, user?.teamId]);
 
   useEffect(() => {
     if (!teamId) {
