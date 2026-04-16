@@ -14,6 +14,8 @@ import {
   Button,
   LinearProgress,
   Modal,
+  IconButton,
+  Tooltip as MuiTooltip,
 } from "@mui/material";
 import {
   CartesianGrid,
@@ -29,10 +31,9 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useAuthFetch } from "../hooks/useAuthFetch";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import { PictureAsPdf as PdfIcon } from "@mui/icons-material";
+import { PictureAsPdf as PdfIcon, PushPin as PinIcon, PushPinOutlined as PinOutlinedIcon, Close as CloseIcon } from "@mui/icons-material";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
-const PERIOD_LENGTH_SECONDS = 20 * 60;
 
 interface Player {
   _id: string;
@@ -91,6 +92,92 @@ const CREAM = "#fff2d1";
 const GREEN = "#005F02";
 const DARK_GREEN = "#003801";
 
+const PRINTER_STAT_STYLES: Record<string, { shape: string; strokeDasharray: string; legendType: string }> = {
+  goals:        { shape: "square",        strokeDasharray: "",          legendType: "square" },
+  assists:      { shape: "circle",        strokeDasharray: "6 3",       legendType: "circle" },
+  shots:        { shape: "triangle-up",   strokeDasharray: "2 3",       legendType: "triangle" },
+  hits:         { shape: "triangle-down", strokeDasharray: "8 3 2 3",   legendType: "triangle" },
+  pim:          { shape: "diamond",       strokeDasharray: "12 3",      legendType: "diamond" },
+  plusMinus:    { shape: "cross",         strokeDasharray: "4 2 4 2",   legendType: "cross" },
+  saves:        { shape: "star",          strokeDasharray: "10 4",      legendType: "star" },
+  goalsAgainst: { shape: "x-mark",        strokeDasharray: "2 2",       legendType: "wye" },
+  faceoffsWon:  { shape: "pentagon",      strokeDasharray: "16 4 2 4",  legendType: "rect" },
+  faceoffsLost: { shape: "hexagon",       strokeDasharray: "8 2 2 2",   legendType: "rect" },
+};
+
+function makePrinterDot(shape: string) {
+  return (props: Record<string, unknown>) => {
+    const cx = Number(props.cx ?? 0);
+    const cy = Number(props.cy ?? 0);
+    const s = 5;
+    switch (shape) {
+      case "square":
+        return <rect x={cx - s} y={cy - s} width={s * 2} height={s * 2} fill="#000" />;
+      case "circle":
+        return <circle cx={cx} cy={cy} r={s} fill="#000" />;
+      case "triangle-up": {
+        const h = s * 1.732;
+        const pts = `${cx},${cy - h * 0.67} ${cx - s},${cy + h * 0.33} ${cx + s},${cy + h * 0.33}`;
+        return <polygon points={pts} fill="#000" />;
+      }
+      case "triangle-down": {
+        const h = s * 1.732;
+        const pts = `${cx},${cy + h * 0.67} ${cx - s},${cy - h * 0.33} ${cx + s},${cy - h * 0.33}`;
+        return <polygon points={pts} fill="#000" />;
+      }
+      case "diamond": {
+        const pts = `${cx},${cy - s * 1.4} ${cx + s},${cy} ${cx},${cy + s * 1.4} ${cx - s},${cy}`;
+        return <polygon points={pts} fill="#000" />;
+      }
+      case "cross": {
+        const t = s * 0.35;
+        const pts = [
+          `${cx - t},${cy - s}`, `${cx + t},${cy - s}`,
+          `${cx + t},${cy - t}`, `${cx + s},${cy - t}`,
+          `${cx + s},${cy + t}`, `${cx + t},${cy + t}`,
+          `${cx + t},${cy + s}`, `${cx - t},${cy + s}`,
+          `${cx - t},${cy + t}`, `${cx - s},${cy + t}`,
+          `${cx - s},${cy - t}`, `${cx - t},${cy - t}`,
+        ].join(" ");
+        return <polygon points={pts} fill="#000" />;
+      }
+      case "star": {
+        const outerR = s * 1.2;
+        const innerR = s * 0.48;
+        const pts = Array.from({ length: 10 }, (_, i) => {
+          const angle = (i * Math.PI) / 5 - Math.PI / 2;
+          const r = i % 2 === 0 ? outerR : innerR;
+          return `${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`;
+        }).join(" ");
+        return <polygon points={pts} fill="#000" />;
+      }
+      case "x-mark":
+        return (
+          <g>
+            <line x1={cx - s} y1={cy - s} x2={cx + s} y2={cy + s} stroke="#000" strokeWidth={2.5} />
+            <line x1={cx + s} y1={cy - s} x2={cx - s} y2={cy + s} stroke="#000" strokeWidth={2.5} />
+          </g>
+        );
+      case "pentagon": {
+        const pts = Array.from({ length: 5 }, (_, i) => {
+          const angle = (i * 2 * Math.PI) / 5 - Math.PI / 2;
+          return `${cx + s * Math.cos(angle)},${cy + s * Math.sin(angle)}`;
+        }).join(" ");
+        return <polygon points={pts} fill="#000" />;
+      }
+      case "hexagon": {
+        const pts = Array.from({ length: 6 }, (_, i) => {
+          const angle = (i * Math.PI) / 3;
+          return `${cx + s * Math.cos(angle)},${cy + s * Math.sin(angle)}`;
+        }).join(" ");
+        return <polygon points={pts} fill="#000" />;
+      }
+      default:
+        return <circle cx={cx} cy={cy} r={s} fill="#000" />;
+    }
+  };
+}
+
 const greenFieldSx = {
   "& .MuiInputLabel-root": { color: GREEN, fontWeight: 700 },
   "& .MuiInputLabel-root.Mui-focused": { color: GREEN },
@@ -138,6 +225,16 @@ function uniqueTimeOptions(history: StatHistoryEntry[]) {
   });
 }
 
+interface PinnedGraph {
+  id: string;
+  label: string;
+  viewMode: "total" | "cumulative" | "players";
+  selectedStats: string[];
+  selectedPlayers: string[];
+  chartData: Array<Record<string, string | number>>;
+  players: Player[];
+}
+
 export default function GameStats() {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
@@ -159,6 +256,11 @@ export default function GameStats() {
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
   const [pdfProgress, setPdfProgress] = useState({ current: 0, total: 0 });
   const pdfContentRef = useRef<HTMLDivElement>(null);
+  const printerPdfRef = useRef<HTMLDivElement>(null);
+  const [pinnedGraphs, setPinnedGraphs] = useState<PinnedGraph[]>([]);
+  const pinnedGraphRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const [isPrinterPdfGenerating, setIsPrinterPdfGenerating] = useState(false);
+  const [printerPdfProgress, setPrinterPdfProgress] = useState({ current: 0, total: 0 });
   async function fetchData() {
     try {
       const gameRes = await authFetch(`${API_BASE_URL}/api/games/${gameId}`);
@@ -377,34 +479,58 @@ export default function GameStats() {
     );
   };
 
+  const handlePinGraph = () => {
+    const statLabels = STAT_FIELDS
+      .filter((s) => selectedStats.includes(s.key))
+      .map((s) => s.label)
+      .join(", ");
+    const modeLabel =
+      viewMode === "cumulative"
+        ? "Cumulative"
+        : viewMode === "total"
+        ? "Final Total"
+        : "Players";
+    const pinned: PinnedGraph = {
+      id: `pin-${Date.now()}`,
+      label: `${modeLabel} · ${statLabels || "No stats"}`,
+      viewMode,
+      selectedStats: [...selectedStats],
+      selectedPlayers: [...selectedPlayers],
+      chartData: chartData.map((d) => ({ ...d })),
+      players: [...players],
+    };
+    setPinnedGraphs((prev) => [...prev, pinned]);
+  };
+
+  const handleUnpinGraph = (id: string) => {
+    setPinnedGraphs((prev) => prev.filter((g) => g.id !== id));
+  };
+
   async function handleDownloadPdf() {
+    if (pinnedGraphs.length === 0) return;
     setIsPdfGenerating(true);
 
-    const container = pdfContentRef.current;
-    if (!container) {
-      setIsPdfGenerating(false);
-      return;
-    }
-
     try {
-      const sections =
-        container.querySelectorAll<HTMLElement>(".pdf-page");
-      const total = sections.length;
+      const total = pinnedGraphs.length;
       setPdfProgress({ current: 0, total });
 
       const pdf = new jsPDF("landscape", "mm", "a4");
       const pageWidth = 297;
       const pageHeight = 210;
 
-      for (let i = 0; i < total; i++) {
+      for (let i = 0; i < pinnedGraphs.length; i++) {
+        const pinned = pinnedGraphs[i];
+        const el = pinnedGraphRefs.current.get(pinned.id);
+        if (!el) continue;
+
         if (i > 0) pdf.addPage();
 
         // Yield to the UI so the progress bar updates
         await new Promise<void>((r) => setTimeout(r, 0));
 
-        const canvas = await html2canvas(sections[i], {
+        const canvas = await html2canvas(el, {
           scale: 1.5,
-          backgroundColor: "#fff2d1",
+          backgroundColor: DARK_GREEN,
           useCORS: true,
           logging: false,
         });
@@ -427,17 +553,76 @@ export default function GameStats() {
       }
 
       const dateStr = game
-        ? new Date(game.gameDate)
-            .toLocaleDateString()
-            .replace(/\//g, "-")
+        ? new Date(game.gameDate).toLocaleDateString().replace(/\//g, "-")
         : "game";
       const opponent = game?.opponent?.teamName || "opponent";
-      pdf.save(`Game_Stats_vs_${opponent}_${dateStr}.pdf`);
+      pdf.save(`Pinned_Stats_vs_${opponent}_${dateStr}.pdf`);
     } catch (err) {
       console.error("Error generating PDF:", err);
     } finally {
       setIsPdfGenerating(false);
       setPdfProgress({ current: 0, total: 0 });
+    }
+  }
+
+  async function handleDownloadPrinterFriendlyPdf() {
+    if (pinnedGraphs.length === 0) return;
+    setIsPrinterPdfGenerating(true);
+
+    const container = printerPdfRef.current;
+    if (!container) {
+      setIsPrinterPdfGenerating(false);
+      return;
+    }
+
+    try {
+      const sections = container.querySelectorAll<HTMLElement>(".printer-pdf-page");
+      const total = sections.length;
+      setPrinterPdfProgress({ current: 0, total });
+
+      const pdf = new jsPDF("landscape", "mm", "a4");
+      const pageWidth = 297;
+      const pageHeight = 210;
+
+      for (let i = 0; i < total; i++) {
+        if (i > 0) pdf.addPage();
+
+        await new Promise<void>((r) => setTimeout(r, 0));
+
+        const canvas = await html2canvas(sections[i], {
+          scale: 1.5,
+          backgroundColor: "#ffffff",
+          useCORS: true,
+          logging: false,
+        });
+
+        const imgData = canvas.toDataURL("image/jpeg", 0.95);
+        const ratio = canvas.width / canvas.height;
+        let imgWidth = pageWidth;
+        let imgHeight = imgWidth / ratio;
+
+        if (imgHeight > pageHeight) {
+          imgHeight = pageHeight;
+          imgWidth = imgHeight * ratio;
+        }
+
+        const x = (pageWidth - imgWidth) / 2;
+        const y = (pageHeight - imgHeight) / 2;
+        pdf.addImage(imgData, "JPEG", x, y, imgWidth, imgHeight);
+
+        setPrinterPdfProgress({ current: i + 1, total });
+      }
+
+      const dateStr = game
+        ? new Date(game.gameDate).toLocaleDateString().replace(/\//g, "-")
+        : "game";
+      const opponent = game?.opponent?.teamName || "opponent";
+      pdf.save(`Pinned_Stats_PrinterFriendly_vs_${opponent}_${dateStr}.pdf`);
+    } catch (err) {
+      console.error("Error generating printer-friendly PDF:", err);
+    } finally {
+      setIsPrinterPdfGenerating(false);
+      setPrinterPdfProgress({ current: 0, total: 0 });
     }
   }
 
@@ -556,30 +741,59 @@ export default function GameStats() {
             direction="row"
             justifyContent="space-between"
             alignItems="center"
+            flexWrap="wrap"
+            gap={1}
             sx={{ mb: 2 }}
           >
             <Typography sx={{ fontWeight: 900, color: GREEN }}>Options</Typography>
-            <Button
-              variant="contained"
-              startIcon={isPdfGenerating ? <CircularProgress size={18} sx={{ color: CREAM }} /> : <PdfIcon />}
-              onClick={handleDownloadPdf}
-              disabled={isPdfGenerating || statHistory.length === 0}
-              sx={{
-                bgcolor: GREEN,
-                color: CREAM,
-                fontWeight: 700,
-                "&:hover": { bgcolor: DARK_GREEN },
-                "&:disabled": {
-                  bgcolor: "rgba(0,95,2,0.3)",
-                  color: "rgba(255,242,209,0.5)",
-                },
-              }}
-            >
-              {isPdfGenerating
-                ? `Rendering ${pdfProgress.current}/${pdfProgress.total}...`
-                : "Download as PDF"}
-            </Button>
 
+            <Stack direction="row" spacing={1} flexWrap="wrap">
+              {/* Color PDF */}
+              <Button
+                variant="contained"
+                startIcon={isPdfGenerating ? <CircularProgress size={18} sx={{ color: CREAM }} /> : <PdfIcon />}
+                onClick={handleDownloadPdf}
+                disabled={isPdfGenerating || isPrinterPdfGenerating || pinnedGraphs.length === 0}
+                sx={{
+                  bgcolor: GREEN,
+                  color: CREAM,
+                  fontWeight: 700,
+                  "&:hover": { bgcolor: DARK_GREEN },
+                  "&.Mui-disabled": {
+                    bgcolor: "rgba(0,95,2,0.3)",
+                    color: "rgba(255,242,209,0.5)",
+                  },
+                }}
+              >
+                {isPdfGenerating
+                  ? `Rendering ${pdfProgress.current}/${pdfProgress.total}...`
+                  : `Download Pinned${pinnedGraphs.length > 0 ? ` (${pinnedGraphs.length})` : ""}`}
+              </Button>
+
+              {/* Printer-friendly PDF */}
+              <Button
+                variant="outlined"
+                startIcon={isPrinterPdfGenerating ? <CircularProgress size={18} sx={{ color: GREEN }} /> : <PdfIcon />}
+                onClick={handleDownloadPrinterFriendlyPdf}
+                disabled={isPdfGenerating || isPrinterPdfGenerating || pinnedGraphs.length === 0}
+                sx={{
+                  borderColor: GREEN,
+                  color: GREEN,
+                  fontWeight: 700,
+                  "&:hover": { borderColor: DARK_GREEN, bgcolor: "rgba(0,95,2,0.06)" },
+                  "&.Mui-disabled": {
+                    borderColor: "rgba(0,95,2,0.3)",
+                    color: "rgba(0,95,2,0.35)",
+                  },
+                }}
+              >
+                {isPrinterPdfGenerating
+                  ? `Rendering ${printerPdfProgress.current}/${printerPdfProgress.total}...`
+                  : "Printer Friendly"}
+              </Button>
+            </Stack>
+
+            {/* Color PDF progress modal */}
             <Modal open={isPdfGenerating}>
               <Box
                 sx={{
@@ -613,7 +827,46 @@ export default function GameStats() {
                   }}
                 />
                 <Typography sx={{ color: GREEN, mt: 1.5, fontSize: 12, opacity: 0.7 }}>
-                  Please wait — this may take a moment for large rosters
+                  Please wait — this may take a moment
+                </Typography>
+              </Box>
+            </Modal>
+
+            {/* Printer-friendly PDF progress modal */}
+            <Modal open={isPrinterPdfGenerating}>
+              <Box
+                sx={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  transform: "translate(-50%, -50%)",
+                  bgcolor: "white",
+                  borderRadius: 3,
+                  boxShadow: 24,
+                  p: 4,
+                  minWidth: 340,
+                  textAlign: "center",
+                }}
+              >
+                <PdfIcon sx={{ fontSize: 40, color: "#333", mb: 1 }} />
+                <Typography sx={{ fontWeight: 800, color: "#333", fontSize: 20, mb: 1 }}>
+                  Generating Printer-Friendly PDF
+                </Typography>
+                <Typography sx={{ color: "#555", mb: 2, fontSize: 14 }}>
+                  Rendering page {printerPdfProgress.current} of {printerPdfProgress.total}...
+                </Typography>
+                <LinearProgress
+                  variant="determinate"
+                  value={printerPdfProgress.total > 0 ? (printerPdfProgress.current / printerPdfProgress.total) * 100 : 0}
+                  sx={{
+                    height: 10,
+                    borderRadius: 5,
+                    bgcolor: "rgba(0,0,0,0.1)",
+                    "& .MuiLinearProgress-bar": { bgcolor: "#333", borderRadius: 5 },
+                  }}
+                />
+                <Typography sx={{ color: "#777", mt: 1.5, fontSize: 12 }}>
+                  Please wait — this may take a moment
                 </Typography>
               </Box>
             </Modal>
@@ -733,8 +986,27 @@ export default function GameStats() {
             p: 3,
             boxShadow: "0 10px 30px rgba(0,0,0,.12)",
             bgcolor: DARK_GREEN,
+            position: "relative",
           }}
         >
+          <MuiTooltip title="Pin this graph" placement="top">
+            <IconButton
+              onClick={handlePinGraph}
+              disabled={chartData.length === 0}
+              sx={{
+                position: "absolute",
+                top: 12,
+                right: 12,
+                color: CREAM,
+                bgcolor: "rgba(255,242,209,0.12)",
+                "&:hover": { bgcolor: "rgba(255,242,209,0.22)" },
+                "&.Mui-disabled": { color: "rgba(255,242,209,0.25)" },
+                zIndex: 1,
+              }}
+            >
+              <PinOutlinedIcon />
+            </IconButton>
+          </MuiTooltip>
           {chartData.length === 0 ? (
             <Typography sx={{ textAlign: "center", py: 8, color: CREAM, opacity: 0.7 }}>
               No stat history data available for this game.
@@ -796,6 +1068,141 @@ export default function GameStats() {
             </ResponsiveContainer>
           )}
         </Paper>
+
+        {pinnedGraphs.length > 0 && (
+          <Box sx={{ mt: 4 }}>
+            <Typography
+              sx={{
+                fontWeight: 900,
+                fontSize: 20,
+                color: GREEN,
+                fontFamily: "Oswald, sans-serif",
+                mb: 2,
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+              }}
+            >
+              <PinIcon sx={{ fontSize: 20 }} />
+              Pinned Graphs
+            </Typography>
+
+            <Stack spacing={3}>
+              {pinnedGraphs.map((pinned) => (
+                <Paper
+                  key={pinned.id}
+                  ref={(el) => {
+                    if (el) pinnedGraphRefs.current.set(pinned.id, el);
+                    else pinnedGraphRefs.current.delete(pinned.id);
+                  }}
+                  elevation={6}
+                  sx={{
+                    borderRadius: 4,
+                    p: 3,
+                    boxShadow: "0 10px 30px rgba(0,0,0,.12)",
+                    bgcolor: DARK_GREEN,
+                    position: "relative",
+                  }}
+                >
+                  {/* Header row */}
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    justifyContent="space-between"
+                    sx={{ mb: 2 }}
+                  >
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      <PinIcon sx={{ color: CREAM, fontSize: 18, opacity: 0.8 }} />
+                      <Typography
+                        sx={{
+                          color: CREAM,
+                          fontWeight: 700,
+                          fontSize: 14,
+                          opacity: 0.85,
+                        }}
+                      >
+                        {pinned.label}
+                      </Typography>
+                    </Box>
+                    <MuiTooltip title="Unpin graph" placement="top">
+                      <IconButton
+                        onClick={() => handleUnpinGraph(pinned.id)}
+                        size="small"
+                        sx={{
+                          color: CREAM,
+                          opacity: 0.7,
+                          "&:hover": { opacity: 1, bgcolor: "rgba(255,242,209,0.12)" },
+                        }}
+                      >
+                        <CloseIcon fontSize="small" />
+                      </IconButton>
+                    </MuiTooltip>
+                  </Stack>
+
+                  {pinned.chartData.length === 0 ? (
+                    <Typography sx={{ textAlign: "center", py: 4, color: CREAM, opacity: 0.5 }}>
+                      No data captured in this snapshot.
+                    </Typography>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={340}>
+                      <LineChart data={pinned.chartData}>
+                        <CartesianGrid stroke={CREAM} strokeDasharray="5 5" strokeOpacity={0.3} />
+                        <XAxis
+                          dataKey="gameSecondsElapsed"
+                          stroke={CREAM}
+                          tick={{ fill: CREAM, fontWeight: 600 }}
+                        />
+                        <YAxis
+                          stroke={CREAM}
+                          tick={{ fill: CREAM, fontWeight: 600 }}
+                          tickCount={8}
+                        />
+                        <Tooltip
+                          formatter={(value: number, name: string) => [value, name]}
+                          labelFormatter={(_, payload) => {
+                            const point = payload?.[0]?.payload;
+                            return point?.label || "";
+                          }}
+                        />
+                        <Legend wrapperStyle={{ color: CREAM }} />
+
+                        {pinned.viewMode === "players"
+                          ? STAT_FIELDS.filter((s) => pinned.selectedStats.includes(s.key)).flatMap((stat) =>
+                              pinned.selectedPlayers.map((playerId) => {
+                                const player = pinned.players.find((p) => p._id === playerId);
+                                const playerName = player ? `#${player.number}` : playerId;
+                                return (
+                                  <Line
+                                    key={`${playerId}-${stat.key}`}
+                                    type="monotone"
+                                    dataKey={`${playerName}_${stat.key}`}
+                                    stroke={stat.color}
+                                    strokeWidth={2}
+                                    dot={{ r: 4, fill: stat.color, strokeWidth: 2, stroke: CREAM }}
+                                    name={`${player?.name || playerId} - ${stat.label}`}
+                                  />
+                                );
+                              })
+                            )
+                          : STAT_FIELDS.filter((s) => pinned.selectedStats.includes(s.key)).map((stat) => (
+                              <Line
+                                key={stat.key}
+                                type="monotone"
+                                dataKey={stat.key}
+                                stroke={stat.color}
+                                strokeWidth={2}
+                                dot={{ r: 4, fill: stat.color, strokeWidth: 2, stroke: CREAM }}
+                                name={stat.label}
+                              />
+                            ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </Paper>
+              ))}
+            </Stack>
+          </Box>
+        )}
 
         <Box
           ref={pdfContentRef}
@@ -993,6 +1400,113 @@ export default function GameStats() {
               </Box>
             ))}
           </Box>
+
+        {/* Hidden printer-friendly charts for PDF capture */}
+        <Box
+          ref={printerPdfRef}
+          sx={{
+            position: "fixed",
+            left: "-9999px",
+            top: 0,
+            zIndex: -1,
+            pointerEvents: "none",
+          }}
+        >
+          {pinnedGraphs.map((pinned, idx) => (
+            <Box
+              key={pinned.id}
+              className="printer-pdf-page"
+              sx={{ width: 1200, bgcolor: "#ffffff", p: 4 }}
+            >
+              {/* Page header */}
+              <Typography
+                sx={{
+                  fontWeight: 900,
+                  fontSize: 28,
+                  color: "#000",
+                  fontFamily: "Oswald, sans-serif",
+                  mb: 0.5,
+                }}
+              >
+                Pinned Graph {idx + 1}
+              </Typography>
+              <Typography sx={{ fontSize: 14, color: "#333", mb: 0.5, fontWeight: 600 }}>
+                {pinned.label}
+              </Typography>
+              {game && (
+                <Typography sx={{ fontSize: 13, color: "#555", mb: 2 }}>
+                  {game.gameType} vs {game.opponent?.teamName || "Opponent"} &mdash;{" "}
+                  {new Date(game.gameDate).toLocaleDateString()}
+                </Typography>
+              )}
+
+              <Box sx={{ bgcolor: "#fff", border: "1px solid #ccc", borderRadius: 1, p: 1 }}>
+                <LineChart width={1120} height={480} data={pinned.chartData}>
+                  <CartesianGrid stroke="#ccc" strokeDasharray="4 4" strokeOpacity={0.6} />
+                  <XAxis
+                    dataKey="gameSecondsElapsed"
+                    stroke="#000"
+                    tick={{ fill: "#000", fontWeight: 600, fontSize: 12 }}
+                  />
+                  <YAxis
+                    stroke="#000"
+                    tick={{ fill: "#000", fontWeight: 600, fontSize: 12 }}
+                    tickCount={8}
+                  />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [value, name]}
+                    labelFormatter={(_, payload) => {
+                      const point = payload?.[0]?.payload;
+                      return point?.label || "";
+                    }}
+                  />
+                  <Legend wrapperStyle={{ color: "#000" }} />
+
+                  {pinned.viewMode === "players"
+                    ? STAT_FIELDS.filter((s) => pinned.selectedStats.includes(s.key)).flatMap((stat) =>
+                        pinned.selectedPlayers.map((playerId) => {
+                          const player = pinned.players.find((p) => p._id === playerId);
+                          const playerName = player ? `#${player.number}` : playerId;
+                          const style = PRINTER_STAT_STYLES[stat.key] ?? { shape: "circle", strokeDasharray: "", legendType: "circle" };
+                          return (
+                            <Line
+                              key={`${playerId}-${stat.key}`}
+                              type="monotone"
+                              dataKey={`${playerName}_${stat.key}`}
+                              stroke="#000"
+                              strokeWidth={2}
+                              strokeDasharray={style.strokeDasharray}
+                              dot={makePrinterDot(style.shape)}
+                              legendType={style.legendType as "square" | "circle" | "triangle" | "diamond" | "cross" | "star" | "wye" | "rect"}
+                              name={`${player?.name || playerId} - ${stat.label}`}
+                              isAnimationActive={false}
+                            />
+                          );
+                        })
+                      )
+                    : STAT_FIELDS.filter((s) => pinned.selectedStats.includes(s.key)).map((stat) => {
+                        const style = PRINTER_STAT_STYLES[stat.key] ?? { shape: "circle", strokeDasharray: "", legendType: "circle" };
+                        return (
+                          <Line
+                            key={stat.key}
+                            type="monotone"
+                            dataKey={stat.key}
+                            stroke="#000"
+                            strokeWidth={2}
+                            strokeDasharray={style.strokeDasharray}
+                            dot={makePrinterDot(style.shape)}
+                            legendType={style.legendType as "square" | "circle" | "triangle" | "diamond" | "cross" | "star" | "wye" | "rect"}
+                            name={stat.label}
+                            isAnimationActive={false}
+                          />
+                        );
+                      })}
+                </LineChart>
+              </Box>
+            </Box>
+          ))}
+        </Box>
+
       </Container>
     </Box>
   );
