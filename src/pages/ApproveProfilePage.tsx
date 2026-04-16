@@ -36,6 +36,12 @@ export default function ApproveProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
+  // Team settings state
+  const [teamName, setTeamName] = useState('');
+  const [teamDescription, setTeamDescription] = useState('');
+  const [teamSaving, setTeamSaving] = useState(false);
+  const [teamId, setTeamId] = useState<string | null>(null);
+
   const [rosterPlayers, setRosterPlayers] = useState<RosterPlayer[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [newPlayerName, setNewPlayerName] = useState('');
@@ -60,6 +66,44 @@ export default function ApproveProfilePage() {
     }
   }, [token]);
 
+  const loadTeam = useCallback(async () => {
+    if (!user?.teamId) return;
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/teams/${user.teamId}`);
+      if (!res.ok) throw new Error('Failed to load team');
+      const data = await res.json();
+      setTeamId(data._id);
+      setTeamName(data.name ?? '');
+      setTeamDescription(data.description ?? '');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load team');
+    }
+  }, [authFetch, user?.teamId]);
+
+  const handleSaveTeam = async () => {
+    if (!teamId || !teamName.trim()) {
+      setError('Team name is required.');
+      return;
+    }
+    setTeamSaving(true);
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/teams/${teamId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: teamName.trim(), description: teamDescription.trim() || undefined }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || 'Failed to save team');
+      }
+      setActionMsg('Team settings saved.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save team');
+    } finally {
+      setTeamSaving(false);
+    }
+  };
+
   const loadRoster = useCallback(async () => {
     if (!user?.teamId) return;
     setRosterLoading(true);
@@ -77,6 +121,7 @@ export default function ApproveProfilePage() {
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { loadRoster(); }, [loadRoster]);
+  useEffect(() => { loadTeam(); }, [loadTeam]);
 
   const handleApprove = async (userId: string) => {
     if (!token) return;
@@ -165,6 +210,42 @@ export default function ApproveProfilePage() {
 
           {error && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>{error}</Alert>}
           {actionMsg && <Alert severity="success" sx={{ mb: 3 }} onClose={() => setActionMsg(null)}>{actionMsg}</Alert>}
+
+          {/* Team Settings */}
+          <Paper elevation={6} sx={{ p: 4, borderRadius: 4, mb: 4 }}>
+            <Typography variant="h5" sx={{ color: 'primary.main', fontWeight: 600, mb: 3 }}>
+              Team Settings
+            </Typography>
+            <Stack spacing={2}>
+              <TextField
+                label="Team Name"
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value)}
+                fullWidth
+                required
+              />
+              <TextField
+                label="Description"
+                value={teamDescription}
+                onChange={(e) => setTeamDescription(e.target.value)}
+                fullWidth
+                multiline
+                minRows={2}
+              />
+              <Box>
+                <Button
+                  variant="contained"
+                  onClick={handleSaveTeam}
+                  disabled={teamSaving}
+                  sx={{ bgcolor: GREEN, fontWeight: 700, '&:hover': { bgcolor: '#004a01' } }}
+                >
+                  {teamSaving ? 'Saving…' : 'Save Changes'}
+                </Button>
+              </Box>
+            </Stack>
+          </Paper>
+
+          <Divider sx={{ mb: 4 }} />
 
           {loading ? (
             <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box>
