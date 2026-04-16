@@ -133,19 +133,16 @@ interface PinnedGraph {
   players: Player[];
 }
 
-export default function OpponentOverview() {
+export default function TeamOverview() {
   const navigate = useNavigate();
   const authFetch = useAuthFetch();
   const [searchParams] = useSearchParams();
 
   const initialTeamId = searchParams.get("teamId") || "";
-  const initialOpponent = searchParams.get("opponent") || "";
 
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState(initialTeamId);
   const [selectedTeamName, setSelectedTeamName] = useState("");
-  const [opponents, setOpponents] = useState<string[]>([]);
-  const [selectedOpponent, setSelectedOpponent] = useState(initialOpponent);
 
   const [games, setGames] = useState<Game[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -180,52 +177,34 @@ export default function OpponentOverview() {
     })();
   }, []);
 
+  // When team selected, load ALL games + players + final stats
   useEffect(() => {
     if (!selectedTeamId) {
-      setOpponents([]);
-      setSelectedOpponent("");
+      setGames([]);
+      setFinalStats([]);
+      setPlayers([]);
       return;
     }
     const team = teams.find((t) => t._id === selectedTeamId);
     setSelectedTeamName(team?.name || "");
-    (async () => {
-      try {
-        const res = await authFetch(`${API_BASE_URL}/api/games?teamId=${selectedTeamId}`);
-        const allGames: Game[] = await res.json();
-        const opponentSet = new Set<string>();
-        allGames.forEach((g) => {
-          const name = g.opponent?.teamName;
-          if (name) opponentSet.add(name);
-        });
-        setOpponents([...opponentSet].sort());
 
-        const playersRes = await authFetch(`${API_BASE_URL}/api/players?teamId=${selectedTeamId}`);
-        const playersData = await playersRes.json();
-        setPlayers(Array.isArray(playersData) ? playersData : []);
-      } catch (err) {
-        console.error("Error fetching games for team:", err);
-      }
-    })();
-  }, [selectedTeamId, teams]);
-
-  useEffect(() => {
-    if (!selectedTeamId || !selectedOpponent) {
-      setGames([]);
-      setFinalStats([]);
-      return;
-    }
     (async () => {
       setIsLoadingStats(true);
       try {
-        const res = await authFetch(`${API_BASE_URL}/api/games?teamId=${selectedTeamId}`);
-        const allGames: Game[] = await res.json();
-        const matched = allGames
-          .filter((g) => g.opponent?.teamName === selectedOpponent)
+        const [gamesRes, playersRes] = await Promise.all([
+          authFetch(`${API_BASE_URL}/api/games?teamId=${selectedTeamId}`),
+          authFetch(`${API_BASE_URL}/api/players?teamId=${selectedTeamId}`),
+        ]);
+        const allGames: Game[] = await gamesRes.json();
+        const sorted = (Array.isArray(allGames) ? allGames : [])
           .sort((a, b) => new Date(a.gameDate).getTime() - new Date(b.gameDate).getTime());
-        setGames(matched);
+        setGames(sorted);
 
-        if (matched.length > 0) {
-          const gameIds = matched.map((g) => g._id).join(",");
+        const playersData = await playersRes.json();
+        setPlayers(Array.isArray(playersData) ? playersData : []);
+
+        if (sorted.length > 0) {
+          const gameIds = sorted.map((g) => g._id).join(",");
           const statsRes = await authFetch(
             `${API_BASE_URL}/api/stats/history/final?gameIds=${encodeURIComponent(gameIds)}`
           );
@@ -234,7 +213,7 @@ export default function OpponentOverview() {
 
           const eventsMap: Record<string, Array<{ eventType: string; team: string }>> = {};
           await Promise.all(
-            matched.map(async (game) => {
+            sorted.map(async (game) => {
               try {
                 const evRes = await authFetch(`${API_BASE_URL}/api/events?gameId=${game._id}`);
                 const evData = await evRes.json();
@@ -248,12 +227,12 @@ export default function OpponentOverview() {
           setGameEvents({});
         }
       } catch (err) {
-        console.error("Error fetching opponent games:", err);
+        console.error("Error fetching team data:", err);
       } finally {
         setIsLoadingStats(false);
       }
     })();
-  }, [selectedTeamId, selectedOpponent]);
+  }, [selectedTeamId, teams]);
 
   const teamChartData = useMemo(() => {
     if (games.length === 0 || finalStats.length === 0) return [];
@@ -267,12 +246,13 @@ export default function OpponentOverview() {
         });
       });
       const date = new Date(game.gameDate).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      const opponent = game.opponent?.teamName || "—";
       const score = game.score ? `${game.score.us ?? 0}-${game.score.them ?? 0}` : "";
       return {
         gameIndex: idx + 1,
-        label: `Game ${idx + 1}\n${date}`,
+        label: `G${idx + 1}\n${date}`,
         shortLabel: `G${idx + 1}`,
-        tooltip: `Game ${idx + 1} — ${date}${score ? ` (${score})` : ""}`,
+        tooltip: `Game ${idx + 1} — ${date} vs ${opponent}${score ? ` (${score})` : ""}`,
         ...totals,
       };
     });
@@ -283,12 +263,13 @@ export default function OpponentOverview() {
     return games.map((game, idx) => {
       const gameStats = finalStats.filter((s) => s.gameId === game._id);
       const date = new Date(game.gameDate).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      const opponent = game.opponent?.teamName || "—";
       const score = game.score ? `${game.score.us ?? 0}-${game.score.them ?? 0}` : "";
       const point: Record<string, string | number> = {
         gameIndex: idx + 1,
-        label: `Game ${idx + 1}\n${date}`,
+        label: `G${idx + 1}\n${date}`,
         shortLabel: `G${idx + 1}`,
-        tooltip: `Game ${idx + 1} — ${date}${score ? ` (${score})` : ""}`,
+        tooltip: `Game ${idx + 1} — ${date} vs ${opponent}${score ? ` (${score})` : ""}`,
       };
       selectedPlayers.forEach((playerId) => {
         const playerStat = gameStats.find((s) => s.playerId === playerId);
@@ -318,12 +299,13 @@ export default function OpponentOverview() {
         else if (ev.eventType === "hit") totals.hits++;
       });
       const date = new Date(game.gameDate).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      const opponent = game.opponent?.teamName || "—";
       const score = game.score ? `${game.score.us ?? 0}-${game.score.them ?? 0}` : "";
       return {
         gameIndex: idx + 1,
-        label: `Game ${idx + 1}\n${date}`,
+        label: `G${idx + 1}\n${date}`,
         shortLabel: `G${idx + 1}`,
-        tooltip: `Game ${idx + 1} — ${date}${score ? ` (${score})` : ""} [Opponent]`,
+        tooltip: `Game ${idx + 1} — ${date} vs ${opponent}${score ? ` (${score})` : ""} [Opponent]`,
         ...totals,
       };
     });
@@ -333,9 +315,9 @@ export default function OpponentOverview() {
     if (teamChartData.length === 0) return [];
     const OPP_STATS = ["goals", "shots", "hits"];
     return STAT_FIELDS.map((sf) => {
-      const us = teamChartData.reduce((sum, row) => sum + (Number((row as Record<string, string | number>)[sf.key]) || 0), 0);
+      const us = teamChartData.reduce((sum, row) => sum + (Number(row[sf.key]) || 0), 0);
       const opponent = OPP_STATS.includes(sf.key)
-        ? opponentLineData.reduce((sum, row) => sum + (Number((row as Record<string, string | number>)[sf.key]) || 0), 0)
+        ? opponentLineData.reduce((sum, row) => sum + (Number(row[sf.key]) || 0), 0)
         : 0;
       return { stat: sf.label, us, opponent, key: sf.key };
     });
@@ -411,7 +393,7 @@ export default function OpponentOverview() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `Opponent_Overview_vs_${selectedOpponent || "opponent"}.csv`;
+    link.download = `Team_Overview_${selectedTeamName || "team"}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -452,7 +434,7 @@ export default function OpponentOverview() {
         pdf.addImage(imgData, "JPEG", x, y, imgWidth, imgHeight);
         setPdfProgress({ current: i + 1, total });
       }
-      pdf.save(`Opponent_Overview_vs_${selectedOpponent || "opponent"}.pdf`);
+      pdf.save(`Team_Overview_${selectedTeamName || "team"}.pdf`);
     } catch (err) {
       console.error("Error generating PDF:", err);
     } finally {
@@ -470,7 +452,7 @@ export default function OpponentOverview() {
     sPlayers: string[],
     pList: Player[],
     height = 500,
-    oppLabel = "Opponent",
+    oppLabel = "Opponents",
     isOpponentView = false,
   ) {
     if (data.length === 0) {
@@ -599,10 +581,10 @@ export default function OpponentOverview() {
             </Button>
             <Button
               variant="contained"
-              onClick={() => navigate("/team-overview")}
+              onClick={() => navigate("/opponent-overview")}
               sx={{ bgcolor: GREEN, color: CREAM, fontWeight: 700, "&:hover": { bgcolor: "#004a01" } }}
             >
-              Team Overview
+              Opponent Overview
             </Button>
           </Stack>
 
@@ -612,10 +594,10 @@ export default function OpponentOverview() {
               fontSize: { xs: 28, sm: 36, md: 48 }, mb: 1, color: GREEN, fontFamily: "Oswald, sans-serif",
             }}
           >
-            Opponent Overview
+            Team Overview
           </Typography>
           <Typography sx={{ textAlign: "center", fontWeight: 600, fontSize: { xs: 14, md: 18 }, mb: 3, color: GREEN, opacity: 0.8 }}>
-            View final-game stats across all games against an opponent
+            View final-game stats across all games for a team
           </Typography>
 
           <Paper elevation={6} sx={{ borderRadius: 4, p: 3, mb: 3, boxShadow: "0 10px 30px rgba(0,0,0,.12)" }}>
@@ -673,20 +655,10 @@ export default function OpponentOverview() {
                 <InputLabel sx={{ color: GREEN, fontWeight: 700 }}>Team</InputLabel>
                 <Select
                   value={selectedTeamId} label="Team"
-                  onChange={(e) => { setSelectedTeamId(e.target.value); setSelectedOpponent(""); }}
+                  onChange={(e) => setSelectedTeamId(e.target.value)}
                   sx={greenFieldSx} MenuProps={greenMenuProps}
                 >
                   {teams.map((team) => <MenuItem key={team._id} value={team._id}>{team.name}</MenuItem>)}
-                </Select>
-              </FormControl>
-              <FormControl fullWidth sx={{ minWidth: 200 }} disabled={!selectedTeamId}>
-                <InputLabel sx={{ color: GREEN, fontWeight: 700 }}>Opponent</InputLabel>
-                <Select
-                  value={selectedOpponent} label="Opponent"
-                  onChange={(e) => setSelectedOpponent(e.target.value)}
-                  sx={greenFieldSx} MenuProps={greenMenuProps}
-                >
-                  {opponents.map((name) => <MenuItem key={name} value={name}>{name}</MenuItem>)}
                 </Select>
               </FormControl>
               <FormControl fullWidth sx={{ minWidth: 180 }}>
@@ -768,23 +740,16 @@ export default function OpponentOverview() {
             )}
           </Paper>
 
-          {selectedTeamId && selectedOpponent && (
+          {/* Info strip */}
+          {selectedTeamId && (
             <Paper elevation={3} sx={{ borderRadius: 4, p: 2, mb: 3, bgcolor: GREEN, color: CREAM }}>
               <Typography sx={{ fontWeight: 800, textAlign: "center", fontSize: { xs: 16, md: 20 }, color: CREAM }}>
-                {games.length} game{games.length !== 1 ? "s" : ""} found vs {selectedOpponent}
+                {games.length} game{games.length !== 1 ? "s" : ""} total for {selectedTeamName || "team"}
               </Typography>
-              {games.length > 0 && (
-                <Typography sx={{ textAlign: "center", mt: 0.5, opacity: 0.85, fontSize: { xs: 12, md: 14 }, color: CREAM }}>
-                  {games.map((g, i) => {
-                    const date = new Date(g.gameDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-                    const score = g.score ? ` (${g.score.us ?? 0}-${g.score.them ?? 0})` : "";
-                    return `Game ${i + 1}: ${date}${score}`;
-                  }).join("  •  ")}
-                </Typography>
-              )}
             </Paper>
           )}
 
+          {/* Pin button */}
           <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 1 }}>
             <Button
               variant="contained" startIcon={<PinOutlinedIcon />} onClick={handlePinGraph}
@@ -799,14 +764,15 @@ export default function OpponentOverview() {
             </Button>
           </Box>
 
+          {/* Main chart */}
           <Paper elevation={6} sx={{ borderRadius: 4, p: 3, boxShadow: "0 10px 30px rgba(0,0,0,.12)", bgcolor: DARK_GREEN }}>
             {isLoadingStats ? (
               <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
                 <CircularProgress sx={{ color: CREAM }} />
               </Box>
-            ) : !selectedTeamId || !selectedOpponent ? (
+            ) : !selectedTeamId ? (
               <Typography sx={{ textAlign: "center", py: 8, color: CREAM, opacity: 0.7 }}>
-                Select a team and opponent to view stats across games.
+                Select a team to view stats across all games.
               </Typography>
             ) : (
               renderChart(
@@ -818,12 +784,13 @@ export default function OpponentOverview() {
                 selectedPlayers,
                 players,
                 500,
-                selectedOpponent || "Opponent",
+                "Opponents",
                 showOpponent && chartType === "line",
               )
             )}
           </Paper>
 
+          {/* Pinned graphs */}
           {pinnedGraphs.length > 0 && (
             <Box sx={{ mt: 4 }}>
               <Typography sx={{ fontWeight: 900, fontSize: 20, color: GREEN, fontFamily: "Oswald, sans-serif", mb: 2, display: "flex", alignItems: "center", gap: 1 }}>
@@ -858,7 +825,7 @@ export default function OpponentOverview() {
                       pinned.selectedPlayers,
                       pinned.players,
                       340,
-                      selectedOpponent || "Opponent",
+                      "Opponents",
                       pinned.showOpponent && pinned.chartType === "line",
                     )}
                   </Paper>

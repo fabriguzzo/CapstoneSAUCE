@@ -219,6 +219,9 @@ export default function StatTrackerPage() {
   const [passSaving, setPassSaving] = useState(false);
   const [dismissedPassIds, setDismissedPassIds] = useState<Set<string>>(new Set());
 
+  // Track whether events have been loaded for the current game (prevents score reset to 0-0 on game switch)
+  const [eventsLoaded, setEventsLoaded] = useState(false);
+
   useEffect(() => {
     if (!isClockRunning) return;
 
@@ -272,8 +275,8 @@ export default function StatTrackerPage() {
   // Fetch this user's assigned tracker sections
   useEffect(() => {
     if (!user) return;
-    // Coaches always have access to everything
-    if (user.role === 'coach') {
+    // Coaches and admins always have access to everything
+    if (user.role === 'coach' || user.role === 'admin') {
       setAssignedTrackers(['faceoff_tracker', 'hit_penalty_tracker', 'shots_goals_tracker', 'time_of_possession', 'pass_tracker']);
       return;
     }
@@ -465,8 +468,8 @@ export default function StatTrackerPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          us: selectedGame.score?.us ?? 0,
-          them: selectedGame.score?.them ?? 0,
+          us: sgStats.homeGoals,
+          them: sgStats.awayGoals,
           currentPeriod,
         }),
       });
@@ -495,6 +498,7 @@ export default function StatTrackerPage() {
   // Fetch faceoffs when game is selected
   useEffect(() => {
     if (!gameId) {
+      setEventsLoaded(false);
       setFaceoffs([]);
       setFaceoffHomePlayer(null);
       setFaceoffAwayPlayer(null);
@@ -507,6 +511,7 @@ export default function StatTrackerPage() {
       setPassEvents([]);
       return;
     }
+    setEventsLoaded(false);
     (async () => {
       try {
         const eventsRes = await authFetch(`${API.events}?gameId=${encodeURIComponent(gameId)}`);
@@ -520,6 +525,7 @@ export default function StatTrackerPage() {
       } catch (e) {
         console.error("Failed to load game events", e);
       }
+      setEventsLoaded(true);
       // Load latest possession
       try {
         const posRes = await authFetch(`/api/possession/game/${encodeURIComponent(gameId)}/latest`);
@@ -884,12 +890,41 @@ export default function StatTrackerPage() {
   const sgStats = useMemo(() => {
     let totalShots = 0;
     let totalGoals = 0;
+    let homeGoals = 0;
+    let awayGoals = 0;
     for (const r of shotGoals) {
       if (r.eventType === "shot") totalShots++;
-      else if (r.eventType === "goal") { totalGoals++; totalShots++; }
+      else if (r.eventType === "goal") {
+        totalGoals++;
+        totalShots++;
+        if (r.team === "home") homeGoals++;
+        else awayGoals++;
+      }
     }
-    return { totalShots, totalGoals };
+    return { totalShots, totalGoals, homeGoals, awayGoals };
   }, [shotGoals]);
+
+  // Sync the game score to the backend whenever goal counts change
+  useEffect(() => {
+    if (!gameId || !eventsLoaded) return;
+    const currentGame = games.find((g) => g._id === gameId);
+    if (!currentGame) return;
+    const currentUs = currentGame.score?.us ?? 0;
+    const currentThem = currentGame.score?.them ?? 0;
+    if (currentUs === sgStats.homeGoals && currentThem === sgStats.awayGoals) return;
+    // Update local state
+    setGames((prev) =>
+      prev.map((g) =>
+        g._id === gameId ? { ...g, score: { us: sgStats.homeGoals, them: sgStats.awayGoals } } : g
+      )
+    );
+    // Persist to backend
+    authFetch(`${API.games}/${gameId}/live`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ score: { us: sgStats.homeGoals, them: sgStats.awayGoals } }),
+    }).catch((e) => console.error("Failed to sync game score", e));
+  }, [sgStats.homeGoals, sgStats.awayGoals, gameId, eventsLoaded]);
 
   const changePossession = async (newOwner: "home" | "away" | "none") => {
     // Save snapshot when possession changes from a team
@@ -1073,112 +1108,6 @@ export default function StatTrackerPage() {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  };
-
-  const editingPlayer = useMemo(() => {
-    if (!editingPlayerId) return null;
-    return sortedPlayers.find((p) => p._id === editingPlayerId) || null;
-  }, [editingPlayerId, sortedPlayers]);
-
-  const openEdit = (playerId: string) => {
-    let line = linesByPlayerId[playerId];
-
-    if (!line) {
-      line = {
-        gameId,
-        teamId,
-        playerId,
-        goals: 0,
-        assists: 0,
-        shots: 0,
-        hits: 0,
-        pim: 0,
-        saves: 0,
-        faceoffsWon: 0,
-        faceoffsLost: 0,
-      };
-
-      setLinesByPlayerId((prev) => ({
-        ...prev,
-        [playerId]: line!,
-      }));
-    }
-
-    setEditingPlayerId(playerId);
-    setEditingStatKey("goals");
-    setEditingValue(line.goals ?? 0);
-  };
-
-  const closeEdit = () => setEditingPlayerId(null);
-
-  const saveOne = async () => {
-    if (!editingPlayerId || !teamId || !gameId) return;
-
-    const playerLine = linesByPlayerId[editingPlayerId];
-    if (!playerLine) return;
-
-    const nextLine: StatLine = {
-      ...playerLine,
-      [editingStatKey]: intOrZero(editingValue),
-    };
-
-    setLinesByPlayerId((prev) => ({ ...prev, [editingPlayerId]: nextLine }));
-    setSavingOne(true);
-    setMsg(null);
-
-    try {
-      const payloadLine = {
-        playerId: nextLine.playerId,
-        goals: nextLine.goals,
-        assists: nextLine.assists,
-        shots: nextLine.shots,
-        hits: nextLine.hits,
-        pim: nextLine.pim,
-        saves: nextLine.saves,
-        faceoffsWon: nextLine.faceoffsWon,
-        faceoffsLost: nextLine.faceoffsLost,
-      };
-
-      const gameSecondsElapsed = getGameSecondsElapsed(currentPeriod, clockSecondsRemaining);
-
-      const res = await authFetch(`${API.stats}/bulk`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          teamId,
-          gameId,
-          lines: [payloadLine],
-          historyMeta: {
-            period: currentPeriod,
-            clockSecondsRemaining,
-            gameSecondsElapsed,
-          },
-        }),
-      });
-
-      const raw = await res.text();
-      let data: any = null;
-      if (raw) {
-        try {
-          data = JSON.parse(raw);
-        } catch {
-          // ignore non-json body
-        }
-      }
-
-      if (!res.ok) {
-        setMsg({ type: "error", text: data?.error || `Failed to save stat. (${res.status})` });
-        return;
-      }
-
-      setMsg({ type: "success", text: "Stat saved!" });
-      closeEdit();
-    } catch (e) {
-      console.error(e);
-      setMsg({ type: "error", text: "Failed to save stat." });
-    } finally {
-      setSavingOne(false);
-    }
   };
 
   return (
@@ -1938,6 +1867,17 @@ export default function StatTrackerPage() {
                 <Typography sx={{ color: GREEN, fontWeight: 900 }}>Goals: {sgStats.totalGoals}</Typography>
               </Stack>
 
+              {/* Score */}
+              <Stack direction="row" justifyContent="center" alignItems="center" spacing={2} sx={{ mb: 2 }}>
+                <Typography sx={{ color: GREEN, fontWeight: 900, fontSize: 18 }}>
+                  {teams.find((t) => t._id === teamId)?.name || "Home"}: {sgStats.homeGoals}
+                </Typography>
+                <Typography sx={{ color: GREEN, fontWeight: 900, fontSize: 22 }}>–</Typography>
+                <Typography sx={{ color: GREEN, fontWeight: 900, fontSize: 18 }}>
+                  {selectedGame.opponent?.teamName || "Opponent"}: {sgStats.awayGoals}
+                </Typography>
+              </Stack>
+
               <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
                 {/* Home Team Table */}
                 <Box sx={{ flex: 1, width: "100%" }}>
@@ -1971,10 +1911,10 @@ export default function StatTrackerPage() {
                             <TableCell align="center">
                               <Button
                                 size="small"
-                                variant="outlined"
+                                variant="contained"
                                 disabled={sgSaving}
                                 onClick={() => recordGoal(p)}
-                                sx={{ minWidth: 55, borderColor: "#e65100", color: "#e65100", fontWeight: 900, "&:hover": { bgcolor: "rgba(230,81,0,0.08)", borderColor: "#bf360c" } }}
+                                sx={{ minWidth: 55, bgcolor: GREEN, color: CREAM, fontWeight: 900, "&:hover": { bgcolor: "#004a01" } }}
                               >
                                 Goal
                               </Button>
@@ -2069,7 +2009,7 @@ export default function StatTrackerPage() {
                             <TableCell align="center">
                               <Button
                                 size="small"
-                                variant="outlined"
+                                variant="contained"
                                 disabled={sgSaving}
                                 onClick={async () => {
                                   if (!gameId || !teamId) return;
@@ -2096,7 +2036,7 @@ export default function StatTrackerPage() {
                                   } catch (e) { console.error(e); setMsg({ type: "error", text: "Failed to save goal." }); }
                                   finally { setSgSaving(false); }
                                 }}
-                                sx={{ minWidth: 55, borderColor: "#e65100", color: "#e65100", fontWeight: 900, "&:hover": { bgcolor: "rgba(230,81,0,0.08)", borderColor: "#bf360c" } }}
+                                sx={{ minWidth: 55, bgcolor: GREEN, color: CREAM, fontWeight: 900, "&:hover": { bgcolor: "#004a01" } }}
                               >
                                 Goal
                               </Button>
@@ -2480,219 +2420,7 @@ export default function StatTrackerPage() {
           </DialogActions>
         </Dialog>
 
-        <AnimatePresence>
-          {editingPlayerId && editingPlayer && (
-            <Box
-              component={motion.div}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              sx={{
-                position: "fixed",
-                inset: 0,
-                zIndex: 2000,
-                bgcolor: "rgba(0,0,0,.55)",
-                display: "grid",
-                placeItems: "center",
-                p: 2,
-              }}
-              onClick={closeEdit}
-            >
-              <Box
-                onClick={(e) => e.stopPropagation()}
-                component={motion.div}
-                initial={{ opacity: 0, scale: 0.92, y: 14 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                transition={{ duration: 0.18 }}
-                sx={{
-                  width: "min(920px, 96vw)",
-                  borderRadius: 4,
-                  overflow: "hidden",
-                  boxShadow: "0 18px 70px rgba(0,0,0,.45)",
-                }}
-              >
-                <Paper sx={{ p: { xs: 2, md: 3 }, bgcolor: CREAM }}>
-                  <Stack direction={{ xs: "column", md: "row" }} spacing={2.5} alignItems="center">
-                    <Box sx={{ width: { xs: "100%", md: 360 } }}>
-                      <PlayerFifaCard
-                        player={editingPlayer}
-                        stat={linesByPlayerId[editingPlayerId]}
-                        onClick={() => {}}
-                        size="lg"
-                      />
-                    </Box>
-
-                    <Box sx={{ flex: 1, width: "100%" }}>
-                      <Typography sx={{ fontWeight: 1000, color: GREEN, mb: 1 }}>
-                        Edit Stats — #{editingPlayer.number} {editingPlayer.name}
-                      </Typography>
-
-                      <Stack spacing={2}>
-                        <FormControl fullWidth>
-                          <InputLabel sx={{ color: GREEN, fontWeight: 700 }}>Stat</InputLabel>
-                          <Select
-                            label="Stat"
-                            value={editingStatKey as string}
-                            onChange={(e) => {
-                              const k = e.target.value as keyof StatLine;
-                              setEditingStatKey(k);
-                              const line = linesByPlayerId[editingPlayerId];
-                              setEditingValue(Number((line as any)?.[k] ?? 0));
-                            }}
-                            sx={{
-                              ...greenFieldSx,
-                              "& .MuiSelect-select": { color: GREEN, fontWeight: 800 },
-                            }}
-                            MenuProps={greenMenuProps}
-                          >
-                            <MenuItem value="goals">Goals</MenuItem>
-                            <MenuItem value="assists">Assists</MenuItem>
-                            <MenuItem value="shots">Shots</MenuItem>
-                            <MenuItem value="hits">Hits</MenuItem>
-                            <MenuItem value="pim">PIM</MenuItem>
-                            <MenuItem value="saves">Saves</MenuItem>
-                            <MenuItem value="faceoffsWon">Faceoffs Won</MenuItem>
-                            <MenuItem value="faceoffsLost">Faceoffs Lost</MenuItem>
-                          </Select>
-                        </FormControl>
-
-                        <TextField
-                          type="number"
-                          label="Value"
-                          value={editingValue}
-                          onChange={(e) => setEditingValue(Number(e.target.value))}
-                          fullWidth
-                          sx={greenFieldSx}
-                        />
-
-                        <Stack direction="row" spacing={1.5} justifyContent="flex-end">
-                          <Button
-                            variant="outlined"
-                            onClick={closeEdit}
-                            sx={{ borderColor: GREEN, color: GREEN, fontWeight: 900 }}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            variant="contained"
-                            onClick={saveOne}
-                            sx={{ bgcolor: GREEN, fontWeight: 1000 }}
-                            disabled={savingOne}
-                          >
-                            {savingOne ? "Saving…" : "Save"}
-                          </Button>
-                        </Stack>
-
-                        {msg && (
-                          <Alert severity={msg.type} sx={{ mt: 1 }}>
-                            {msg.text}
-                          </Alert>
-                        )}
-                      </Stack>
-                    </Box>
-                  </Stack>
-                </Paper>
-              </Box>
-            </Box>
-          )}
-        </AnimatePresence>
       </Container>
     </Box>
-  );
-}
-
-function PlayerFifaCard({
-  player,
-  stat,
-  onClick,
-  size = "md",
-}: {
-  player: Player;
-  stat?: StatLine;
-  onClick: () => void;
-  size?: "md" | "lg";
-}) {
-  const g = stat?.goals ?? 0;
-  const a = stat?.assists ?? 0;
-  const sh = stat?.shots ?? 0;
-  const h = stat?.hits ?? 0;
-  const pim = stat?.pim ?? 0;
-
-  const isLg = size === "lg";
-  const pad = isLg ? 2.4 : 1.5;
-  const numSize = isLg ? 30 : 22;
-  const posSize = isLg ? 14 : 12;
-  const silhouetteH = isLg ? 150 : 92;
-  const nameSize = isLg ? 16 : 13;
-  const statSize = isLg ? 14 : 12;
-
-  return (
-    <Paper
-      onClick={onClick}
-      elevation={0}
-      sx={{
-        cursor: "pointer",
-        borderRadius: "18px",
-        overflow: "visible",
-        transition: "transform .15s ease",
-        "&:hover": { transform: isLg ? "none" : "translateY(-5px)" },
-        background: "linear-gradient(135deg, #0a3d0a, #1a5c1a)",
-        border: "1px solid rgba(255,255,255,.15)",
-        pointerEvents: isLg ? "none" : "auto",
-      }}
-    >
-      <Box sx={{ p: pad, color: "#fff", "& .MuiTypography-root": { color: "#fff" } }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-          <Box>
-            <Typography sx={{ fontWeight: 1000, fontSize: numSize, lineHeight: 1 }}>
-              {player.number}
-            </Typography>
-            <Typography sx={{ fontWeight: 900, fontSize: posSize, opacity: 0.85 }}>
-              {player.position || "—"}
-            </Typography>
-          </Box>
-
-          <Typography sx={{ fontWeight: 1000, fontSize: posSize, opacity: 0.85 }}>
-            SAUCE
-          </Typography>
-        </Stack>
-
-        <Box
-          sx={{
-            mt: 1,
-            height: silhouetteH,
-            borderRadius: 2,
-            bgcolor: "rgba(255,255,255,.10)",
-          }}
-        />
-
-        <Typography
-          sx={{
-            mt: 1.2,
-            textAlign: "center",
-            fontWeight: 1000,
-            letterSpacing: ".02em",
-            fontSize: nameSize,
-          }}
-        >
-          {player.name.toUpperCase()}
-        </Typography>
-
-        <Divider sx={{ my: 1, opacity: 0.4, borderColor: "rgba(255,255,255,.3)" }} />
-
-        <Stack direction="row" justifyContent="space-between">
-          <Box>
-            <Typography sx={{ fontSize: statSize, fontWeight: 1000 }}>G {g}</Typography>
-            <Typography sx={{ fontSize: statSize, fontWeight: 1000 }}>A {a}</Typography>
-            <Typography sx={{ fontSize: statSize, fontWeight: 1000 }}>S {sh}</Typography>
-          </Box>
-          <Box>
-            <Typography sx={{ fontSize: statSize, fontWeight: 1000 }}>H {h}</Typography>
-            <Typography sx={{ fontSize: statSize, fontWeight: 1000 }}>PIM {pim}</Typography>
-          </Box>
-        </Stack>
-      </Box>
-    </Paper>
   );
 }

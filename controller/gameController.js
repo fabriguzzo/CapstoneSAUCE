@@ -345,6 +345,15 @@ exports.updateLiveState = async function (req, res) {
       }
     }
 
+    // Allow updating score through live-state endpoint (any approved user)
+    if (typeof req.body.score === 'object' && req.body.score !== null) {
+      const us = Number(req.body.score.us);
+      const them = Number(req.body.score.them);
+      if (Number.isFinite(us) && us >= 0 && Number.isFinite(them) && them >= 0) {
+        update.score = { us, them };
+      }
+    }
+
     // Set startTime on first transition to live
     if (update.status === 'live') {
       const existing = await dao.read(id);

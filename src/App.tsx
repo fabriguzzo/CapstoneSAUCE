@@ -14,6 +14,7 @@ import StatTrackerPage from './pages/statTrackerPage';
 import GameHistory from './pages/GameHistory';
 import GameStats from './pages/GameStats';
 import OpponentOverview from './pages/OpponentOverview';
+import TeamOverview from './pages/TeamOverview';
 import StatRoleAssignPage from "./pages/statRoleAssignPage";
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -47,6 +48,7 @@ function App() {
             <Route path="/gamestats/:gameId" element={<ProtectedRoute><GameStats /></ProtectedRoute>} />
             <Route path="/gamestats/:gameId/live" element={<ProtectedRoute><GameStats /></ProtectedRoute>} />
             <Route path="/opponent-overview" element={<ProtectedRoute><OpponentOverview /></ProtectedRoute>} />
+            <Route path="/team-overview" element={<ProtectedRoute><TeamOverview /></ProtectedRoute>} />
             <Route path="/assign-roles" element={<ProtectedRoute requiredRole="coach"><StatRoleAssignPage /></ProtectedRoute>} />
             <Route path="/approve-members" element={<ProtectedRoute requiredRole="coach"><ApproveProfilePage /></ProtectedRoute>} />
           </Routes>

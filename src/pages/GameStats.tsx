@@ -36,7 +36,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useAuthFetch } from "../hooks/useAuthFetch";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import { PictureAsPdf as PdfIcon, PushPin as PinIcon, PushPinOutlined as PinOutlinedIcon, Close as CloseIcon } from "@mui/icons-material";
+import { PictureAsPdf as PdfIcon, PushPin as PinIcon, PushPinOutlined as PinOutlinedIcon, Close as CloseIcon, TableChart as CsvIcon } from "@mui/icons-material";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
 
@@ -691,6 +691,57 @@ export default function GameStats() {
     setPinnedGraphs((prev) => prev.filter((g) => g.id !== id));
   };
 
+  function handleDownloadCsv() {
+    if (statHistory.length === 0) return;
+
+    const headers = [
+      "Player Name",
+      "Player Number",
+      "Period",
+      "Clock Remaining",
+      "Game Seconds Elapsed",
+      "Timestamp",
+      ...STAT_FIELDS.map((s) => s.label),
+    ];
+
+    const escapeField = (value: string | number): string => {
+      const str = String(value);
+      if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+        return '"' + str.replace(/"/g, '""') + '"';
+      }
+      return str;
+    };
+
+    const rows = sortedHistory.map((entry) => {
+      const player = players.find((p) => p._id === entry.playerId);
+      return [
+        escapeField(player?.name || "Unknown"),
+        player?.number ?? "",
+        entry.period ?? 1,
+        formatClockRemaining(entry.clockSecondsRemaining ?? 1200),
+        entry.gameSecondsElapsed ?? 0,
+        new Date(entry.timestamp).toLocaleString(),
+        ...STAT_FIELDS.map((s) => entry[s.key as keyof StatHistoryEntry] ?? 0),
+      ].map(escapeField).join(",");
+    });
+
+    const csvContent = "\uFEFF" + headers.map(escapeField).join(",") + "\n" + rows.join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    const dateStr = game
+      ? new Date(game.gameDate).toLocaleDateString().replace(/\//g, "-")
+      : "game";
+    const opponent = game?.opponent?.teamName || "opponent";
+    link.href = url;
+    link.download = `Game_Stats_vs_${opponent}_${dateStr}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   async function handleDownloadPdf() {
     if (pinnedGraphs.length === 0) return;
     setIsPdfGenerating(true);
@@ -975,6 +1026,26 @@ export default function GameStats() {
                 {isPrinterPdfGenerating
                   ? `Rendering ${printerPdfProgress.current}/${printerPdfProgress.total}...`
                   : "Printer Friendly"}
+              </Button>
+
+              {/* CSV download */}
+              <Button
+                variant="contained"
+                startIcon={<CsvIcon />}
+                onClick={handleDownloadCsv}
+                disabled={statHistory.length === 0}
+                sx={{
+                  bgcolor: GREEN,
+                  color: CREAM,
+                  fontWeight: 700,
+                  "&:hover": { bgcolor: DARK_GREEN },
+                  "&.Mui-disabled": {
+                    bgcolor: "rgba(0,95,2,0.3)",
+                    color: "rgba(255,242,209,0.5)",
+                  },
+                }}
+              >
+                Download as CSV
               </Button>
             </Stack>
 
@@ -1804,69 +1875,111 @@ export default function GameStats() {
               )}
 
               <Box sx={{ bgcolor: "#fff", border: "1px solid #ccc", borderRadius: 1, p: 1 }}>
-                <LineChart width={1120} height={480} data={pinned.chartData}>
-                  <CartesianGrid stroke="#ccc" strokeDasharray="4 4" strokeOpacity={0.6} />
-                  <XAxis
-                    dataKey="label"
-                    stroke="#000"
-                    tick={{ fill: "#000", fontWeight: 600, fontSize: 11 }}
-                    interval="preserveStartEnd"
-                    minTickGap={60}
-                  />
-                  <YAxis
-                    stroke="#000"
-                    tick={{ fill: "#000", fontWeight: 600, fontSize: 12 }}
-                    tickCount={8}
-                  />
-                  <Tooltip
-                    formatter={(value: number, name: string) => [value, name]}
-                    labelFormatter={(_, payload) => {
-                      const point = payload?.[0]?.payload;
-                      return point?.label || "";
-                    }}
-                  />
-                  <Legend wrapperStyle={{ color: "#000" }} />
+                {pinned.chartType === "bar" ? (
+                  <BarChart width={1120} height={480} data={pinned.comparisonData.filter((d) => pinned.selectedStats.includes(d.key))}>
+                    <CartesianGrid stroke="#ccc" strokeDasharray="4 4" strokeOpacity={0.6} />
+                    <XAxis dataKey="stat" stroke="#000" tick={{ fill: "#000", fontWeight: 600, fontSize: 12 }} />
+                    <YAxis stroke="#000" tick={{ fill: "#000", fontWeight: 600, fontSize: 12 }} tickCount={8} />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ color: "#000" }} />
+                    <Bar dataKey="home" name={teamName || "Home"} fill="#000" isAnimationActive={false} />
+                    <Bar dataKey="opponent" name={game?.opponent?.teamName || "Opponent"} fill="#999" isAnimationActive={false} />
+                  </BarChart>
+                ) : pinned.chartType === "pie" ? (
+                  <Box sx={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 4, py: 2 }}>
+                    {pinned.comparisonData.filter((d) => pinned.selectedStats.includes(d.key)).map((d) => {
+                      const total = d.home + d.opponent;
+                      const homePct = total > 0 ? ((d.home / total) * 100).toFixed(1) : "0.0";
+                      const oppPct = total > 0 ? ((d.opponent / total) * 100).toFixed(1) : "0.0";
+                      const homeLabel = teamName || "Home";
+                      const oppLabel = game?.opponent?.teamName || "Opponent";
+                      const pieData = [
+                        { name: homeLabel, value: d.home },
+                        { name: oppLabel, value: d.opponent },
+                      ];
+                      const BW_COLORS = ["#000", "#999"];
+                      return (
+                        <Box key={d.key} sx={{ textAlign: "center" }}>
+                          <Typography sx={{ color: "#000", fontWeight: 700, mb: 1, fontSize: 14 }}>{d.stat}</Typography>
+                          <PieChart width={300} height={250}>
+                            <Pie data={pieData} cx={150} cy={115} innerRadius={50} outerRadius={85} dataKey="value" isAnimationActive={false}>
+                              {pieData.map((_, idx) => <Cell key={idx} fill={BW_COLORS[idx]} />)}
+                            </Pie>
+                            <Tooltip />
+                            <Legend />
+                          </PieChart>
+                          <Typography sx={{ color: "#000", fontSize: 12 }}>
+                            {homeLabel}: {d.home} ({homePct}%) · {oppLabel}: {d.opponent} ({oppPct}%)
+                          </Typography>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                ) : (
+                  <LineChart width={1120} height={480} data={pinned.chartData}>
+                    <CartesianGrid stroke="#ccc" strokeDasharray="4 4" strokeOpacity={0.6} />
+                    <XAxis
+                      dataKey="label"
+                      stroke="#000"
+                      tick={{ fill: "#000", fontWeight: 600, fontSize: 11 }}
+                      interval="preserveStartEnd"
+                      minTickGap={60}
+                    />
+                    <YAxis
+                      stroke="#000"
+                      tick={{ fill: "#000", fontWeight: 600, fontSize: 12 }}
+                      tickCount={8}
+                    />
+                    <Tooltip
+                      formatter={(value: number, name: string) => [value, name]}
+                      labelFormatter={(_, payload) => {
+                        const point = payload?.[0]?.payload;
+                        return point?.label || "";
+                      }}
+                    />
+                    <Legend wrapperStyle={{ color: "#000" }} />
 
-                  {pinned.viewMode === "players"
-                    ? STAT_FIELDS.filter((s) => pinned.selectedStats.includes(s.key)).flatMap((stat) =>
-                        pinned.selectedPlayers.map((playerId) => {
-                          const player = pinned.players.find((p) => p._id === playerId);
-                          const playerName = player ? `#${player.number}` : playerId;
+                    {pinned.viewMode === "players"
+                      ? STAT_FIELDS.filter((s) => pinned.selectedStats.includes(s.key)).flatMap((stat) =>
+                          pinned.selectedPlayers.map((playerId) => {
+                            const player = pinned.players.find((p) => p._id === playerId);
+                            const playerName = player ? `#${player.number}` : playerId;
+                            const style = PRINTER_STAT_STYLES[stat.key] ?? { shape: "circle", strokeDasharray: "", legendType: "circle" };
+                            return (
+                              <Line
+                                key={`${playerId}-${stat.key}`}
+                                type="monotone"
+                                dataKey={`${playerName}_${stat.key}`}
+                                stroke="#000"
+                                strokeWidth={2}
+                                strokeDasharray={style.strokeDasharray}
+                                dot={makePrinterDot(style.shape)}
+                                legendType={style.legendType as "square" | "circle" | "triangle" | "diamond" | "cross" | "star" | "wye" | "rect"}
+                                name={`${player?.name || playerId} - ${stat.label}`}
+                                isAnimationActive={false}
+                              />
+                            );
+                          })
+                        )
+                      : STAT_FIELDS.filter((s) => pinned.selectedStats.includes(s.key)).map((stat) => {
                           const style = PRINTER_STAT_STYLES[stat.key] ?? { shape: "circle", strokeDasharray: "", legendType: "circle" };
                           return (
                             <Line
-                              key={`${playerId}-${stat.key}`}
+                              key={stat.key}
                               type="monotone"
-                              dataKey={`${playerName}_${stat.key}`}
+                              dataKey={stat.key}
                               stroke="#000"
                               strokeWidth={2}
                               strokeDasharray={style.strokeDasharray}
                               dot={makePrinterDot(style.shape)}
                               legendType={style.legendType as "square" | "circle" | "triangle" | "diamond" | "cross" | "star" | "wye" | "rect"}
-                              name={`${player?.name || playerId} - ${stat.label}`}
+                              name={stat.label}
                               isAnimationActive={false}
                             />
                           );
-                        })
-                      )
-                    : STAT_FIELDS.filter((s) => pinned.selectedStats.includes(s.key)).map((stat) => {
-                        const style = PRINTER_STAT_STYLES[stat.key] ?? { shape: "circle", strokeDasharray: "", legendType: "circle" };
-                        return (
-                          <Line
-                            key={stat.key}
-                            type="monotone"
-                            dataKey={stat.key}
-                            stroke="#000"
-                            strokeWidth={2}
-                            strokeDasharray={style.strokeDasharray}
-                            dot={makePrinterDot(style.shape)}
-                            legendType={style.legendType as "square" | "circle" | "triangle" | "diamond" | "cross" | "star" | "wye" | "rect"}
-                            name={stat.label}
-                            isAnimationActive={false}
-                          />
-                        );
-                      })}
-                </LineChart>
+                        })}
+                  </LineChart>
+                )}
               </Box>
             </Box>
           ))}

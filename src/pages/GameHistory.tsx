@@ -39,6 +39,7 @@ interface ApiGame {
   status?: "scheduled" | "live" | "intermission" | "final";
   currentPeriod?: number;
   clockSecondsRemaining?: number;
+  clockStartedAt?: string | null;
 }
 
 interface Game {
@@ -55,6 +56,25 @@ interface Game {
   status?: "scheduled" | "live" | "intermission" | "final";
   currentPeriod?: number;
   clockSecondsRemaining?: number;
+  clockStartedAt?: string | null;
+}
+
+interface GameEvent {
+  _id: string;
+  eventType: string;
+  team: "home" | "away";
+  winner?: "home" | "away" | null;
+}
+
+interface PossessionSnapshot {
+  homeSeconds: number;
+  awaySeconds: number;
+}
+
+interface GlanceStats {
+  faceoffPct: string;
+  hitCount: string;
+  possessionPct: string;
 }
 
 const CREAM = "#fff2d1";
@@ -67,9 +87,18 @@ function formatClock(seconds = 0) {
   return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+function getLiveClockSeconds(game: Game) {
+  if (game.clockStartedAt && game.status === "live") {
+    const startedAt = new Date(game.clockStartedAt).getTime();
+    const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    return Math.max(0, (game.clockSecondsRemaining ?? 0) - elapsed);
+  }
+  return game.clockSecondsRemaining ?? 0;
+}
+
 function getStatusLabel(game: Game) {
   if (game.status === "live") {
-    return `Live • P${game.currentPeriod ?? "-"} • ${formatClock(game.clockSecondsRemaining ?? 0)}`;
+    return `Live • P${game.currentPeriod ?? "-"} • ${formatClock(getLiveClockSeconds(game))}`;
   }
   if (game.status === "intermission") {
     return `Intermission • P${game.currentPeriod ?? "-"}`;
@@ -83,10 +112,7 @@ export default function GameHistory() {
   const authFetch = useAuthFetch();
   const [games, setGames] = useState<Game[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const [glanceStats, setGlanceStats] = useState<GlanceStats | null>(null);
 
   async function fetchData() {
     try {
@@ -119,19 +145,70 @@ export default function GameHistory() {
         status: game.status,
         currentPeriod: game.currentPeriod,
         clockSecondsRemaining: game.clockSecondsRemaining,
+        clockStartedAt: game.clockStartedAt,
       }));
 
-      setGames(
-        mappedGames.sort(
-          (a, b) => new Date(b.gameDate).getTime() - new Date(a.gameDate).getTime()
-        )
+      const sorted = mappedGames.sort(
+        (a, b) => new Date(b.gameDate).getTime() - new Date(a.gameDate).getTime()
       );
+      setGames(sorted);
+
+      // Fetch "At a Glance" stats for the last completed game
+      const lastFinal = sorted.find((g) => g.status === "final");
+      if (lastFinal) {
+        fetchGlanceStats(lastFinal._id);
+      } else {
+        setGlanceStats(null);
+      }
     } catch (err) {
       console.error("Error fetching data:", err);
     } finally {
       setIsLoading(false);
     }
   }
+
+  async function fetchGlanceStats(gameId: string) {
+    try {
+      const [eventsRes, possessionRes] = await Promise.all([
+        authFetch(`${API_BASE_URL}/api/events?gameId=${encodeURIComponent(gameId)}`),
+        authFetch(`${API_BASE_URL}/api/possession/game/${encodeURIComponent(gameId)}/latest`),
+      ]);
+
+      let faceoffPct = "—";
+      let hitCount = "—";
+      let possessionPct = "—";
+
+      if (eventsRes.ok) {
+        const events: GameEvent[] = await eventsRes.json();
+        const faceoffs = events.filter((e) => e.eventType === "faceoff");
+        if (faceoffs.length > 0) {
+          const homeWins = faceoffs.filter((e) => e.winner === "home").length;
+          faceoffPct = `${Math.round((homeWins / faceoffs.length) * 100)}%`;
+        }
+        const hits = events.filter((e) => e.eventType === "hit");
+        if (hits.length > 0) {
+          hitCount = String(hits.length);
+        }
+      }
+
+      if (possessionRes.ok) {
+        const possession: PossessionSnapshot = await possessionRes.json();
+        const total = (possession.homeSeconds ?? 0) + (possession.awaySeconds ?? 0);
+        if (total > 0) {
+          possessionPct = `${Math.round((possession.homeSeconds / total) * 100)}%`;
+        }
+      }
+
+      setGlanceStats({ faceoffPct, hitCount, possessionPct });
+    } catch (err) {
+      console.error("Error fetching glance stats:", err);
+      setGlanceStats(null);
+    }
+  }
+
+  useEffect(() => {
+    fetchData();
+  }, []);
 
   const handleHistoryClick = (gameId: string) => {
     navigate(`/gamestats/${gameId}`);
@@ -176,7 +253,7 @@ export default function GameHistory() {
           Game History
         </Typography>
 
-        <Stack direction="row" justifyContent="center" sx={{ mb: 3 }}>
+        <Stack direction="row" justifyContent="center" spacing={2} sx={{ mb: 3 }}>
           <Button
             variant="contained"
             onClick={() => navigate("/opponent-overview")}
@@ -189,6 +266,19 @@ export default function GameHistory() {
             }}
           >
             Opponent Overview
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => navigate("/team-overview")}
+            sx={{
+              bgcolor: GREEN,
+              color: CREAM,
+              fontWeight: 700,
+              px: 3,
+              "&:hover": { bgcolor: "#004a01" },
+            }}
+          >
+            Team Overview
           </Button>
         </Stack>
 
@@ -287,9 +377,9 @@ export default function GameHistory() {
 
                     {/* Stat rows */}
                     {[
-                      { label: "Face Off %", value: "—" },
-                      { label: "Hit %", value: "—" },
-                      { label: "Time of Poss %", value: "—" },
+                      { label: "Face Off %", value: glanceStats?.faceoffPct ?? "—" },
+                      { label: "Hits", value: glanceStats?.hitCount ?? "—" },
+                      { label: "Time of Poss %", value: glanceStats?.possessionPct ?? "—" },
                     ].map(({ label, value }) => (
                       <Box
                         key={label}
