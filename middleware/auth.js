@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const userDao = require('../model/userDao');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
 
@@ -30,14 +31,20 @@ function requireRole(...roles) {
   };
 }
 
-function requireApproved(req, res, next) {
+async function requireApproved(req, res, next) {
   if (!req.user) {
     return res.status(401).json({ error: 'Authentication required' });
   }
-  if (req.user.status !== 'approved') {
-    return res.status(403).json({ error: 'Account pending approval from your team coach.' });
+  try {
+    const user = await userDao.findById(req.user.id);
+    if (!user || user.status !== 'approved') {
+      return res.status(403).json({ error: 'Account pending approval from your team coach.' });
+    }
+    req.user.status = user.status;
+    next();
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to verify account status' });
   }
-  next();
 }
 
 function generateToken(user) {
