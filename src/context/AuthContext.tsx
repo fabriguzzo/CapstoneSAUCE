@@ -16,7 +16,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
+  const [token, setToken] = useState<string | null>(() => sessionStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     getMe(token)
       .then(setUser)
       .catch(() => {
-        localStorage.removeItem('token');
+        sessionStorage.removeItem('token');
         setToken(null);
         setUser(null);
       })
@@ -36,21 +36,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const res = await apiLogin(email, password);
-    localStorage.setItem('token', res.token);
+    sessionStorage.setItem('token', res.token);
     setToken(res.token);
     setUser(res.user);
   }, []);
 
   const register = useCallback(async (data: { email: string; password: string; name: string; role: 'coach' | 'member'; teamId?: string; teamName?: string }) => {
     const res = await apiRegister(data);
-    localStorage.setItem('token', res.token);
+    sessionStorage.setItem('token', res.token);
     setToken(res.token);
     setUser(res.user);
     return res.user;
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('token');
+    sessionStorage.removeItem('token');
     setToken(null);
     setUser(null);
   }, []);
