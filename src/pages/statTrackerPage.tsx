@@ -273,8 +273,8 @@ export default function StatTrackerPage() {
         const res = await authFetch(API.teams);
         const data = await res.json();
         const all: Team[] = Array.isArray(data) ? data : [];
-        // Only show the team this user belongs to
-        const filtered = user?.teamId ? all.filter((t) => t._id === user.teamId) : all;
+        // Admin sees all teams; others see only their own
+        const filtered = (user?.role === 'admin' || !user?.teamId) ? all : all.filter((t) => t._id === user.teamId);
         setTeams(filtered);
         // Auto-select if there's only one option
         if (filtered.length === 1) {
@@ -1336,7 +1336,11 @@ export default function StatTrackerPage() {
                     <Select
                       value={String(currentPeriod)}
                       label="Period"
-                      onChange={(e) => setCurrentPeriod(Number(e.target.value))}
+                      onChange={(e) => {
+                        setCurrentPeriod(Number(e.target.value));
+                        setClockSecondsRemaining(PERIOD_LENGTH_SECONDS);
+                        setIsClockRunning(false);
+                      }}
                       sx={greenFieldSx}
                       MenuProps={greenMenuProps}
                     >
@@ -2309,6 +2313,240 @@ export default function StatTrackerPage() {
                 </Button>
               </Stack>
 
+            </Paper>
+          )}
+
+          {/* ── Pass Tracker Section ── */}
+          {selectedGame && (
+            <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
+              <Typography
+                sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}
+              >
+                Pass Tracker
+              </Typography>
+
+              {/* Summary */}
+              <Stack direction="row" justifyContent="center" spacing={3} sx={{ mb: 2 }}>
+                <Typography sx={{ color: GREEN, fontWeight: 900 }}>
+                  Successful: {passStats.successfulPasses}
+                </Typography>
+                <Typography sx={{ color: GREEN, fontWeight: 900 }}>
+                  Failed: {passStats.failedPasses}
+                </Typography>
+                <Typography sx={{ color: GREEN, fontWeight: 900 }}>
+                  Assists: {passStats.assists}
+                </Typography>
+              </Stack>
+
+              <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
+                {/* Home Team Table */}
+                <Box sx={{ flex: 1, width: "100%" }}>
+                  <Typography sx={{ color: GREEN, fontWeight: 900, mb: 1, textAlign: "center" }}>
+                    Home Team
+                  </Typography>
+                  <TableContainer component={Paper} elevation={2} sx={{ maxHeight: 350, overflow: "auto" }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>#</TableCell>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>Name</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Pass</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Fail</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {sortedPlayers.map((p) => (
+                          <TableRow key={`pass-home-${p._id}`} sx={{ "&:hover": { bgcolor: "rgba(0,95,2,0.06)" } }}>
+                            <TableCell sx={{ fontWeight: 800 }}>{p.number}</TableCell>
+                            <TableCell>{p.name}</TableCell>
+                            <TableCell align="center">
+                              <Button
+                                size="small"
+                                variant="contained"
+                                disabled={passSaving}
+                                onClick={() => recordPass(p, true)}
+                                sx={{
+                                  minWidth: 50,
+                                  bgcolor: GREEN,
+                                  color: CREAM,
+                                  fontWeight: 900,
+                                  "&:hover": { bgcolor: "#004a01" },
+                                }}
+                              >
+                                Pass
+                              </Button>
+                            </TableCell>
+                            <TableCell align="center">
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                disabled={passSaving}
+                                onClick={() => recordPass(p, false)}
+                                sx={{
+                                  minWidth: 50,
+                                  borderColor: "#b71c1c",
+                                  color: "#b71c1c",
+                                  fontWeight: 900,
+                                  "&:hover": { bgcolor: "rgba(183,28,28,0.08)", borderColor: "#8b0000" },
+                                }}
+                              >
+                                Fail
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+
+                {/* Center Panel */}
+                <Box sx={{ flex: 1, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 300 }}>
+                  <Paper
+                    elevation={4}
+                    sx={{
+                      p: 3,
+                      borderRadius: 4,
+                      bgcolor: GREEN,
+                      color: CREAM,
+                      width: "100%",
+                      maxWidth: 320,
+                      textAlign: "center",
+                    }}
+                  >
+                    {lastSuccessfulPass ? (
+                      <>
+                        <Typography sx={{ fontWeight: 1000, fontSize: 18, mb: 2, color: CREAM }}>
+                          Last Successful Pass
+                        </Typography>
+                        <Typography sx={{ fontWeight: 1000, fontSize: 28, color: CREAM }}>
+                          #{lastSuccessfulPass.team === "home" ? lastSuccessfulPass.homePlayerNumber : lastSuccessfulPass.awayPlayerNumber}
+                        </Typography>
+                        <Typography sx={{ fontWeight: 800, fontSize: 14, mb: 2, color: CREAM }}>
+                          {lastSuccessfulPass.team === "home" ? lastSuccessfulPass.homePlayerName : lastSuccessfulPass.awayPlayerName}
+                        </Typography>
+
+                        <Stack direction="row" spacing={1} justifyContent="center">
+                          <Button
+                            variant="contained"
+                            disabled={passSaving}
+                            onClick={markAssist}
+                            sx={{
+                              bgcolor: CREAM,
+                              color: GREEN,
+                              fontWeight: 1000,
+                              "&:hover": { bgcolor: "#e6d9b8" },
+                              "&:disabled": { bgcolor: "rgba(255,255,255,0.3)", color: "rgba(255,255,255,0.5)" },
+                            }}
+                          >
+                            {passSaving ? "Saving…" : "Resulted in Goal"}
+                          </Button>
+                          <Button
+                            variant="outlined"
+                            disabled={passSaving}
+                            onClick={() => {
+                              const ids = new Set(dismissedPassIds);
+                              passEvents.forEach((e) => { if (e.eventType === "pass_success" && !e.isAssist) ids.add(e._id); });
+                              setDismissedPassIds(ids);
+                            }}
+                            sx={{
+                              borderColor: CREAM,
+                              color: CREAM,
+                              fontWeight: 900,
+                              "&:hover": { borderColor: "#e6d9b8", bgcolor: "rgba(255,255,255,0.1)" },
+                              "&:disabled": { borderColor: "rgba(255,255,255,0.3)", color: "rgba(255,255,255,0.5)" },
+                            }}
+                          >
+                            Did Not Result in Goal
+                          </Button>
+                        </Stack>
+                      </>
+                    ) : (
+                      <Typography sx={{ fontWeight: 700, fontSize: 14, opacity: 0.7, mb: 2, color: CREAM }}>
+                        Press "Pass" to record a successful pass, or "Fail" for a failed pass.
+                      </Typography>
+                    )}
+
+                    <Divider sx={{ borderColor: "rgba(255,255,255,0.3)", my: 2 }} />
+
+                    <Button
+                      variant="outlined"
+                      disabled={passEvents.length === 0 || passSaving}
+                      onClick={undoPass}
+                      sx={{
+                        borderColor: CREAM,
+                        color: CREAM,
+                        fontWeight: 900,
+                        "&:hover": { borderColor: "#e6d9b8", bgcolor: "rgba(255,255,255,0.1)" },
+                        "&:disabled": { borderColor: "rgba(255,255,255,0.3)", color: "rgba(255,255,255,0.5)" },
+                      }}
+                    >
+                      Undo Last
+                    </Button>
+                  </Paper>
+                </Box>
+
+                {/* Away Team Table */}
+                <Box sx={{ flex: 1, width: "100%" }}>
+                  <Typography sx={{ color: GREEN, fontWeight: 900, mb: 1, textAlign: "center" }}>
+                    {selectedGame.opponent?.teamName || "Opponent"}
+                  </Typography>
+                  <TableContainer component={Paper} elevation={2} sx={{ maxHeight: 350, overflow: "auto" }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>#</TableCell>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>Name</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Pass</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Fail</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {opponentRoster.map((p, idx) => (
+                          <TableRow key={`pass-opp-${idx}`} sx={{ "&:hover": { bgcolor: "rgba(0,95,2,0.06)" } }}>
+                            <TableCell sx={{ fontWeight: 800 }}>{p.number}</TableCell>
+                            <TableCell>{p.name}</TableCell>
+                            <TableCell align="center">
+                              <Button
+                                size="small"
+                                variant="contained"
+                                disabled={passSaving}
+                                onClick={() => recordAwayPass(p, true)}
+                                sx={{
+                                  minWidth: 50,
+                                  bgcolor: GREEN,
+                                  color: CREAM,
+                                  fontWeight: 900,
+                                  "&:hover": { bgcolor: "#004a01" },
+                                }}
+                              >
+                                Pass
+                              </Button>
+                            </TableCell>
+                            <TableCell align="center">
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                disabled={passSaving}
+                                onClick={() => recordAwayPass(p, false)}
+                                sx={{
+                                  minWidth: 50,
+                                  borderColor: "#b71c1c",
+                                  color: "#b71c1c",
+                                  fontWeight: 900,
+                                  "&:hover": { bgcolor: "rgba(183,28,28,0.08)", borderColor: "#8b0000" },
+                                }}
+                              >
+                                Fail
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              </Stack>
             </Paper>
           )}
         </Stack>

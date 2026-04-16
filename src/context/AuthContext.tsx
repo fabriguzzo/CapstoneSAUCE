@@ -7,7 +7,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (data: { email: string; password: string; name: string; role: 'coach' | 'member'; teamId?: string; teamName?: string }) => Promise<User>;
+  register: (data: { email: string; password: string; name: string; role: 'coach' | 'member' | 'admin'; teamId?: string; teamName?: string }) => Promise<User>;
   logout: () => void;
   updateUser: (user: User) => void;
 }
@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(res.user);
   }, []);
 
-  const register = useCallback(async (data: { email: string; password: string; name: string; role: 'coach' | 'member'; teamId?: string; teamName?: string }) => {
+  const register = useCallback(async (data: { email: string; password: string; name: string; role: 'coach' | 'member' | 'admin'; teamId?: string; teamName?: string }) => {
     const res = await apiRegister(data);
     sessionStorage.setItem('token', res.token);
     setToken(res.token);

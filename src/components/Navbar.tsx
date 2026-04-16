@@ -80,7 +80,7 @@ export default function Navbar() {
                 <Button variant="text" onClick={() => navigate('/gamehistory')} sx={{ color: 'text.primary' }}>
                   Game History
                 </Button>
-                {user.role === 'coach' && (
+                {(user.role === 'coach' || user.role === 'admin') && (
                   <>
                     <Button variant="text" onClick={() => navigate('/gamecrud')} sx={{ color: 'text.primary' }}>
                       Games
@@ -93,7 +93,7 @@ export default function Navbar() {
                 <Button variant="text" onClick={() => navigate('/stattracker')} sx={{ color: 'text.primary' }}>
                   Stat Tracker
                 </Button>
-                {user.role === 'coach' && (
+                {(user.role === 'coach' || user.role === 'admin') && (
                   <>
                     <Button variant="text" onClick={() => navigate('/assign-roles')} sx={{ color: 'text.primary' }}>
                       Assign Roles

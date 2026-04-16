@@ -23,7 +23,7 @@ export default function ProtectedRoute({ children, requiredRole, requireApproved
     return <Navigate to="/login" replace />;
   }
 
-  if (requireApproved && user.status !== 'approved') {
+  if (requireApproved && user.role !== 'admin' && user.status !== 'approved') {
     return (
       <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', display: 'flex', alignItems: 'center' }}>
         <Container maxWidth="sm">
@@ -43,7 +43,7 @@ export default function ProtectedRoute({ children, requiredRole, requireApproved
     );
   }
 
-  if (requiredRole && user.role !== requiredRole) {
+  if (requiredRole && user.role !== 'admin' && user.role !== requiredRole) {
     return (
       <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', display: 'flex', alignItems: 'center' }}>
         <Container maxWidth="sm">

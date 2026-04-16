@@ -11,7 +11,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'coach' | 'member';
+  role: 'coach' | 'member' | 'admin';
   teamId: string;
   status: 'pending' | 'approved';
   profilePicture?: string;
@@ -26,7 +26,7 @@ export async function register(data: {
   email: string;
   password: string;
   name: string;
-  role: 'coach' | 'member';
+  role: 'coach' | 'member' | 'admin';
   teamId?: string;
   teamName?: string;
 }): Promise<AuthResponse> {
