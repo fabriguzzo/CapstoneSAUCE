@@ -43,7 +43,10 @@ type StatKey =
   | "pim"
   | "plusMinus"
   | "saves"
-  | "goalsAgainst";
+  | "goalsAgainst"
+  | "faceoff_tracker"
+  | "hit_penalty_tracker"
+  | "shots_goals_tracker";
 
 const API = {
   team: "/api/teams",
@@ -55,14 +58,9 @@ const CREAM = "#fff2d1";
 const GREEN = "#005F02";
 
 const STAT_OPTIONS: { key: StatKey; label: string }[] = [
-  { key: "goals", label: "Goals" },
-  { key: "assists", label: "Assists" },
-  { key: "shots", label: "Shots" },
-  { key: "hits", label: "Hits" },
-  { key: "pim", label: "PIM" },
-  { key: "plusMinus", label: "Plus/Minus" },
-  { key: "saves", label: "Saves" },
-  { key: "goalsAgainst", label: "Goals Against" },
+  { key: "faceoff_tracker", label: "Faceoff Tracker" },
+  { key: "hit_penalty_tracker", label: "Hit & Penalty Tracker" },
+  { key: "shots_goals_tracker", label: "Shots & Goals Tracker" },
 ];
 
 export default function StatRoleAssignPage() {

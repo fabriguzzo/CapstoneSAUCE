@@ -228,6 +228,9 @@ export default function StatTrackerPage() {
   const [shotGoals, setShotGoals] = useState<GameEventRecord[]>([]);
   const [sgSaving, setSgSaving] = useState(false);
 
+  // Assigned tracker sections for this user
+  const [assignedTrackers, setAssignedTrackers] = useState<string[]>([]);
+
   // Possession tracker state
   const [possessionOwner, setPossessionOwner] = useState<"home" | "away" | "none">("none");
   const [homeSeconds, setHomeSeconds] = useState(0);
@@ -288,6 +291,29 @@ export default function StatTrackerPage() {
       }
     })();
   }, [authFetch, user?.teamId]);
+
+  // Fetch this user's assigned tracker sections
+  useEffect(() => {
+    if (!user) return;
+    // Coaches always have access to everything
+    if (user.role === 'coach') {
+      setAssignedTrackers(['faceoff_tracker', 'hit_penalty_tracker', 'shots_goals_tracker']);
+      return;
+    }
+    const userId = (user as any).id || (user as any)._id;
+    if (!userId) return;
+    (async () => {
+      try {
+        const res = await authFetch(`/api/stat-roles?assigneeUserId=${encodeURIComponent(userId)}`);
+        if (res.ok) {
+          const data: { statKey: string }[] = await res.json();
+          setAssignedTrackers(data.map((r) => r.statKey));
+        }
+      } catch (e) {
+        console.error('Failed to load assigned trackers', e);
+      }
+    })();
+  }, [authFetch, user]);
 
   useEffect(() => {
     if (!teamId) {
@@ -1487,7 +1513,7 @@ export default function StatTrackerPage() {
           </Paper>
 
           {/* ── Faceoff Tracker Section ── */}
-          {selectedGame && opponentRoster.length > 0 && (
+          {selectedGame && opponentRoster.length > 0 && assignedTrackers.includes('faceoff_tracker') && (
             <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
               <Typography
                 sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}
@@ -1724,7 +1750,7 @@ export default function StatTrackerPage() {
           )}
 
           {/* ── Hit & Penalty Tracker Section ── */}
-          {selectedGame && (
+          {selectedGame && assignedTrackers.includes('hit_penalty_tracker') && (
             <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
               <Typography
                 sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}
@@ -2021,7 +2047,7 @@ export default function StatTrackerPage() {
           )}
 
           {/* ── Shots & Goals Tracker Section ── */}
-          {selectedGame && (
+          {selectedGame && assignedTrackers.includes('shots_goals_tracker') && (
             <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
               <Typography sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}>
                 Shots & Goals Tracker

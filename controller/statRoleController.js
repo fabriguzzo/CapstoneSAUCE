@@ -11,6 +11,9 @@ const VALID_KEYS = new Set([
   "plusMinus",
   "saves",
   "goalsAgainst",
+  "faceoff_tracker",
+  "hit_penalty_tracker",
+  "shots_goals_tracker",
 ]);
 
 const STAT_LABELS = {
@@ -22,6 +25,9 @@ const STAT_LABELS = {
   plusMinus: "Plus/Minus",
   saves: "Saves",
   goalsAgainst: "Goals Against",
+  faceoff_tracker: "Faceoff Tracker",
+  hit_penalty_tracker: "Hit & Penalty Tracker",
+  shots_goals_tracker: "Shots & Goals Tracker",
 };
 
 exports.getAll = async (req, res) => {
