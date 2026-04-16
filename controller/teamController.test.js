@@ -83,6 +83,19 @@ describe("teamController Module", () => {
       expect(res.json).toHaveBeenCalledWith({ _id: "t1", name: "Loyola Hockey", coach: "Coach Smith" });
     });
 
+    test("201: trims whitespace from name, coach, and description", async () => {
+      const req = { body: { name: "  Red Hawks  ", coach: "  Coach Bob  ", description: "  A team  " } };
+      const res = makeRes();
+      dao.create.mockResolvedValue({ _id: "t1", name: "Red Hawks" });
+
+      await controller.create(req, res);
+
+      const [teamData] = dao.create.mock.calls[0];
+      expect(teamData.name).toBe("Red Hawks");
+      expect(teamData.coach).toBe("Coach Bob");
+      expect(teamData.description).toBe("A team");
+    });
+
     test("400: missing team name", async () => {
       const req = { body: makeValidCreateBody({ name: "" }) };
       const res = makeRes();
@@ -92,6 +105,52 @@ describe("teamController Module", () => {
       expect(dao.create).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ error: "Team name is required" });
+    });
+
+    test("400: name is not a string", async () => {
+      const req = { body: makeValidCreateBody({ name: 123 }) };
+      const res = makeRes();
+
+      await controller.create(req, res);
+
+      expect(dao.create).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: "Team name is required" });
+    });
+
+    test("400: name is whitespace only", async () => {
+      const req = { body: makeValidCreateBody({ name: "   " }) };
+      const res = makeRes();
+
+      await controller.create(req, res);
+
+      expect(dao.create).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: "Team name is required" });
+    });
+
+    test("400: duplicate team name (code 11000)", async () => {
+      const req = { body: makeValidCreateBody() };
+      const res = makeRes();
+      const dupError = new Error("duplicate");
+      dupError.code = 11000;
+      dao.create.mockRejectedValue(dupError);
+
+      await controller.create(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: "Team with this name already exists" });
+    });
+
+    test("500: generic error from dao.create", async () => {
+      const req = { body: makeValidCreateBody() };
+      const res = makeRes();
+      dao.create.mockRejectedValue(new Error("db error"));
+
+      await controller.create(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: "Failed to create team" });
     });
   });
 
@@ -106,6 +165,17 @@ describe("teamController Module", () => {
       expect(dao.readAll).toHaveBeenCalledWith();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith([{ _id: "t1" }, { _id: "t2" }]);
+    });
+
+    test("500: generic error from dao.readAll", async () => {
+      const req = { query: {} };
+      const res = makeRes();
+      dao.readAll.mockRejectedValue(new Error("db error"));
+
+      await controller.getAll(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: "Failed to retrieve teams" });
     });
   });
 
@@ -131,6 +201,17 @@ describe("teamController Module", () => {
 
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith({ error: "Team not found" });
+    });
+
+    test("500: generic error from dao.read", async () => {
+      const req = { params: { id: "t1" } };
+      const res = makeRes();
+      dao.read.mockRejectedValue(new Error("db error"));
+
+      await controller.getOne(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: "Failed to retrieve team" });
     });
   });
 
