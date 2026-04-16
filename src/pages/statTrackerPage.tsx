@@ -297,7 +297,7 @@ export default function StatTrackerPage() {
     if (!user) return;
     // Coaches always have access to everything
     if (user.role === 'coach') {
-      setAssignedTrackers(['faceoff_tracker', 'hit_penalty_tracker', 'shots_goals_tracker']);
+      setAssignedTrackers(['faceoff_tracker', 'hit_penalty_tracker', 'shots_goals_tracker', 'time_of_possession', 'pass_tracker']);
       return;
     }
     const userId = (user as any).id || (user as any)._id;
@@ -1349,7 +1349,7 @@ export default function StatTrackerPage() {
             )}
           </Paper>
 
-          {selectedGame && (
+          {selectedGame && assignedTrackers.includes('faceoff_tracker') && (
             <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
               <Stack spacing={2}>
                 <Typography sx={{ color: GREEN, fontWeight: 1000, fontSize: 24 }}>
@@ -2233,7 +2233,7 @@ export default function StatTrackerPage() {
           )}
 
           {/* ── Time of Possession Tracker ── */}
-          {selectedGame && (
+          {selectedGame && assignedTrackers.includes('time_of_possession') && (
             <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
               <Typography
                 sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}
@@ -2343,7 +2343,7 @@ export default function StatTrackerPage() {
           )}
 
           {/* ── Pass Tracker Section ── */}
-          {selectedGame && (
+          {selectedGame && assignedTrackers.includes('pass_tracker') && (
             <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
               <Typography
                 sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}

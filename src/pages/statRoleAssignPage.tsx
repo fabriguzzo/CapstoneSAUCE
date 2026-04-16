@@ -46,7 +46,9 @@ type StatKey =
   | "goalsAgainst"
   | "faceoff_tracker"
   | "hit_penalty_tracker"
-  | "shots_goals_tracker";
+  | "shots_goals_tracker"
+  | "time_of_possession"
+  | "pass_tracker";
 
 const API = {
   team: "/api/teams",
@@ -58,9 +60,11 @@ const CREAM = "#fff2d1";
 const GREEN = "#005F02";
 
 const STAT_OPTIONS: { key: StatKey; label: string }[] = [
-  { key: "faceoff_tracker", label: "Faceoff Tracker" },
+  { key: "faceoff_tracker", label: "Faceoff Tracker (includes Live Game Controls)" },
   { key: "hit_penalty_tracker", label: "Hit & Penalty Tracker" },
   { key: "shots_goals_tracker", label: "Shots & Goals Tracker" },
+  { key: "time_of_possession", label: "Time of Possession" },
+  { key: "pass_tracker", label: "Pass Tracker" },
 ];
 
 export default function StatRoleAssignPage() {
