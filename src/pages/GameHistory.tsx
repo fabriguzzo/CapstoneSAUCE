@@ -138,7 +138,7 @@ export default function GameHistory() {
   };
 
   const handleLiveClick = (gameId: string) => {
-    navigate(`/gamestats/${gameId}/live`);
+    navigate(`/games/${gameId}/live`);
   };
 
   if (isLoading) {
@@ -192,14 +192,140 @@ export default function GameHistory() {
           </Button>
         </Stack>
 
-        <Paper
-          elevation={6}
-          sx={{
-            borderRadius: 4,
-            p: { xs: 2.5, md: 3 },
-            boxShadow: "0 10px 30px rgba(0,0,0,.12)",
-          }}
-        >
+        <Stack direction={{ xs: "column", md: "row" }} spacing={3} alignItems="flex-start">
+          {/* ── At a Glance sidebar ── */}
+          {(() => {
+            const lastFinal = games.find((g) => g.status === "final");
+            const won =
+              lastFinal &&
+              (lastFinal.teamScore ?? 0) > (lastFinal.opponentScore ?? 0);
+            const lost =
+              lastFinal &&
+              (lastFinal.teamScore ?? 0) < (lastFinal.opponentScore ?? 0);
+            return (
+              <Paper
+                elevation={6}
+                sx={{
+                  borderRadius: 4,
+                  p: 3,
+                  minWidth: 220,
+                  width: { xs: "100%", md: 240 },
+                  flexShrink: 0,
+                  boxShadow: "0 10px 30px rgba(0,0,0,.12)",
+                  bgcolor: "#fff",
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontWeight: 900,
+                    fontSize: 13,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: GREEN,
+                    mb: 1.5,
+                    fontFamily: "Oswald, sans-serif",
+                  }}
+                >
+                  At a Glance
+                </Typography>
+
+                {!lastFinal ? (
+                  <Typography sx={{ color: GREEN, opacity: 0.55, fontSize: 13 }}>
+                    No completed games yet.
+                  </Typography>
+                ) : (
+                  <>
+                    <Typography
+                      sx={{ fontSize: 11, color: GREEN, opacity: 0.6, mb: 0.5, fontWeight: 600 }}
+                    >
+                      YOUR PREVIOUS GAME
+                    </Typography>
+
+                    {/* Result badge */}
+                    <Box
+                      sx={{
+                        display: "inline-block",
+                        px: 1.5,
+                        py: 0.25,
+                        borderRadius: 2,
+                        mb: 1,
+                        bgcolor: won
+                          ? "rgba(0,95,2,.12)"
+                          : lost
+                          ? "rgba(200,0,0,.1)"
+                          : "rgba(0,0,0,.07)",
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontWeight: 900,
+                          fontSize: 15,
+                          color: won ? GREEN : lost ? "#b00000" : "#555",
+                          fontFamily: "Oswald, sans-serif",
+                        }}
+                      >
+                        {won ? "WIN" : lost ? "LOSS" : "TIE"}
+                      </Typography>
+                    </Box>
+
+                    {/* Score */}
+                    <Typography
+                      sx={{
+                        fontWeight: 900,
+                        fontSize: 28,
+                        color: GREEN,
+                        lineHeight: 1,
+                        mb: 0.25,
+                        fontFamily: "Oswald, sans-serif",
+                      }}
+                    >
+                      {lastFinal.teamScore ?? 0} – {lastFinal.opponentScore ?? 0}
+                    </Typography>
+                    <Typography sx={{ fontSize: 12, color: GREEN, opacity: 0.6, mb: 2 }}>
+                      vs. {lastFinal.opponentTeamName}
+                    </Typography>
+
+                    {/* Stat rows */}
+                    {[
+                      { label: "Face Off %", value: "—" },
+                      { label: "Hit %", value: "—" },
+                      { label: "Time of Poss %", value: "—" },
+                    ].map(({ label, value }) => (
+                      <Box
+                        key={label}
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          py: 0.75,
+                          borderTop: "1px solid rgba(0,95,2,.1)",
+                        }}
+                      >
+                        <Typography sx={{ fontSize: 12, color: GREEN, opacity: 0.75 }}>
+                          {label}
+                        </Typography>
+                        <Typography sx={{ fontSize: 13, fontWeight: 700, color: GREEN }}>
+                          {value}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </>
+                )}
+              </Paper>
+            );
+          })()}
+
+          {/* ── Game table ── */}
+          <Paper
+            elevation={6}
+            sx={{
+              borderRadius: 4,
+              p: { xs: 2.5, md: 3 },
+              boxShadow: "0 10px 30px rgba(0,0,0,.12)",
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
           {games.length === 0 ? (
             <Typography sx={{ textAlign: "center", py: 4, color: GREEN, opacity: 0.7 }}>
               No games have been played yet.
@@ -210,8 +336,6 @@ export default function GameHistory() {
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Date</TableCell>
-                    <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Start Time</TableCell>
-                    <TableCell sx={{ color: GREEN, fontWeight: 700 }}>End Time</TableCell>
                     <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Team</TableCell>
                     <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Opponent</TableCell>
                     <TableCell sx={{ color: GREEN, fontWeight: 700 }}>Type</TableCell>
@@ -226,16 +350,6 @@ export default function GameHistory() {
                     <TableRow key={game._id}>
                       <TableCell sx={{ color: GREEN }}>
                         {new Date(game.gameDate).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell sx={{ color: GREEN }}>
-                        {game.startTime
-                          ? new Date(game.startTime).toLocaleTimeString()
-                          : "—"}
-                      </TableCell>
-                      <TableCell sx={{ color: GREEN }}>
-                        {game.endTime
-                          ? new Date(game.endTime).toLocaleTimeString()
-                          : "—"}
                       </TableCell>
                       <TableCell sx={{ color: GREEN }}>{game.teamName}</TableCell>
                       <TableCell sx={{ color: GREEN }}>{game.opponentTeamName}</TableCell>
@@ -316,7 +430,8 @@ export default function GameHistory() {
               </Table>
             </TableContainer>
           )}
-        </Paper>
+          </Paper>
+        </Stack>
       </Container>
     </Box>
     </>
