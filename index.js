@@ -136,6 +136,7 @@ const eventsRouter = express.Router();
 eventsRouter.get('/', authenticate, requireApproved, statTrackerController.getEventsByGame);
 eventsRouter.post('/', authenticate, requireApproved, statTrackerController.createEvent);
 eventsRouter.post('/undo', authenticate, requireApproved, statTrackerController.undoLastEvent);
+eventsRouter.put('/:id', authenticate, requireApproved, statTrackerController.updateEvent);
 app.use('/api/events', eventsRouter);
 
 // --- Possession routes ---

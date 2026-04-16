@@ -98,6 +98,9 @@ const STAT_FIELDS = [
   { key: "goalsAgainst", label: "Goals Against", color: "#f43f5e" },
   { key: "faceoffsWon", label: "Faceoffs Won", color: "#a855f7" },
   { key: "faceoffsLost", label: "Faceoffs Lost", color: "#f97316" },
+  { key: "successfulPasses", label: "Successful Passes", color: "#14b8a6" },
+  { key: "failedPasses", label: "Failed Passes", color: "#fb923c" },
+  { key: "passAssists", label: "Pass Assists", color: "#c084fc" },
   { key: "homePossession", label: "Home Possession (s)", color: "#06b6d4" },
   { key: "awayPossession", label: "Away Possession (s)", color: "#d946ef" },
 ] as const;
@@ -117,6 +120,9 @@ const PRINTER_STAT_STYLES: Record<string, { shape: string; strokeDasharray: stri
   goalsAgainst: { shape: "x-mark",        strokeDasharray: "2 2",       legendType: "wye" },
   faceoffsWon:  { shape: "pentagon",      strokeDasharray: "16 4 2 4",  legendType: "rect" },
   faceoffsLost: { shape: "hexagon",       strokeDasharray: "8 2 2 2",   legendType: "rect" },
+  successfulPasses: { shape: "circle",    strokeDasharray: "10 2 2 2",  legendType: "circle" },
+  failedPasses:     { shape: "x-mark",    strokeDasharray: "6 4",       legendType: "wye" },
+  passAssists:      { shape: "star",      strokeDasharray: "14 3 2 3",  legendType: "star" },
 };
 
 function makePrinterDot(shape: string) {
@@ -261,6 +267,7 @@ export default function GameStats() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [statHistory, setStatHistory] = useState<StatHistoryEntry[]>([]);
   const [possessionHistory, setPossessionHistory] = useState<PossessionSnapshot[]>([]);
+  const [gameEvents, setGameEvents] = useState<Array<{ _id: string; eventType: string; gameSecondsElapsed: number; period?: number; clockSecondsRemaining?: number; isAssist?: boolean }>>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const [viewMode, setViewMode] = useState<"total" | "cumulative" | "players">("cumulative");
@@ -287,11 +294,12 @@ export default function GameStats() {
         return;
       }
 
-      const [playersRes, historyRes, teamRes, possessionRes] = await Promise.all([
+      const [playersRes, historyRes, teamRes, possessionRes, eventsRes] = await Promise.all([
         authFetch(`${API_BASE_URL}/api/players?teamId=${gameData.teamId}`),
         authFetch(`${API_BASE_URL}/api/stats/history/game/${gameId}`),
         authFetch(`${API_BASE_URL}/api/teams/${gameData.teamId}`),
         authFetch(`${API_BASE_URL}/api/possession/game/${gameId}`),
+        authFetch(`${API_BASE_URL}/api/events?gameId=${gameId}`),
       ]);
 
       const playersData = await playersRes.json();
@@ -305,6 +313,9 @@ export default function GameStats() {
 
       const possessionData = await possessionRes.json();
       setPossessionHistory(Array.isArray(possessionData) ? possessionData : []);
+
+      const eventsData = await eventsRes.json();
+      setGameEvents(Array.isArray(eventsData) ? eventsData : []);
     } catch (err) {
       console.error("Error fetching data:", err);
     } finally {
@@ -358,6 +369,30 @@ export default function GameStats() {
     );
   }, [possessionHistory]);
 
+  // Build sorted pass events for chart overlay
+  const sortedPassEvents = useMemo(() => {
+    return gameEvents
+      .filter((e) => e.eventType === "pass_success" || e.eventType === "pass_fail")
+      .sort((a, b) => (a.gameSecondsElapsed ?? 0) - (b.gameSecondsElapsed ?? 0));
+  }, [gameEvents]);
+
+  const getPassCountsAt = (gameSecondsElapsed: number) => {
+    let successfulPasses = 0;
+    let failedPasses = 0;
+    let passAssists = 0;
+    for (const ev of sortedPassEvents) {
+      if ((ev.gameSecondsElapsed ?? 0) <= gameSecondsElapsed) {
+        if (ev.eventType === "pass_success") {
+          successfulPasses++;
+          if (ev.isAssist) passAssists++;
+        } else {
+          failedPasses++;
+        }
+      } else break;
+    }
+    return { successfulPasses, failedPasses, passAssists };
+  };
+
   const getPossessionAt = (gameSecondsElapsed: number) => {
     // Find the last possession snapshot at or before this time
     let home = 0, away = 0;
@@ -405,10 +440,11 @@ export default function GameStats() {
     }
 
     const snapshotsByPlayer: Record<string, Record<string, number>> = {};
-    const series: Array<Record<string, string | number>> = [];
+    const seriesMap: Record<number, Record<string, string | number>> = {};
 
     filteredHistory.forEach((entry) => {
       const playerId = String(entry.playerId);
+      const gse = entry.gameSecondsElapsed ?? 0;
 
       snapshotsByPlayer[playerId] = {
         goals: entry.goals ?? 0,
@@ -435,23 +471,67 @@ export default function GameStats() {
       });
 
       // Merge possession data at this time point
-      const possAt = getPossessionAt(entry.gameSecondsElapsed ?? 0);
+      const possAt = getPossessionAt(gse);
       totals.homePossession = possAt.homePossession;
       totals.awayPossession = possAt.awayPossession;
 
-      series.push({
-        gameSecondsElapsed: entry.gameSecondsElapsed ?? 0,
+      // Merge pass event counts at this time point
+      const passCounts = getPassCountsAt(gse);
+      totals.successfulPasses = passCounts.successfulPasses;
+      totals.failedPasses = passCounts.failedPasses;
+      totals.passAssists = passCounts.passAssists;
+
+      seriesMap[gse] = {
+        gameSecondsElapsed: gse,
         label: formatPeriodClock(entry.period ?? 1, entry.clockSecondsRemaining ?? 1200),
         ...totals,
-      });
+      };
     });
+
+    // Add possession-only data points that don't overlap with stat history
+    sortedPossession.forEach((snap) => {
+      const gse = snap.gameSecondsElapsed ?? 0;
+      if (timeRangeStart !== "" && gse < timeRangeStart) return;
+      if (timeRangeEnd !== "" && gse > timeRangeEnd) return;
+      if (!seriesMap[gse]) {
+        // Carry forward the last known stat totals
+        const allGse = Object.keys(seriesMap).map(Number).sort((a, b) => a - b);
+        const prevGse = allGse.filter((t) => t <= gse).pop();
+        const prevPoint = prevGse !== undefined ? seriesMap[prevGse] : null;
+
+        const point: Record<string, string | number> = {
+          gameSecondsElapsed: gse,
+          label: formatPeriodClock(snap.period ?? 1, snap.clockSecondsRemaining ?? 1200),
+        };
+
+        STAT_FIELDS.forEach((stat) => {
+          if (stat.key === "homePossession" || stat.key === "awayPossession") return;
+          if (stat.key === "successfulPasses" || stat.key === "failedPasses" || stat.key === "passAssists") return;
+          point[stat.key] = prevPoint ? (prevPoint[stat.key] ?? 0) : 0;
+        });
+
+        point.homePossession = snap.homeSeconds;
+        point.awayPossession = snap.awaySeconds;
+
+        const passCounts = getPassCountsAt(gse);
+        point.successfulPasses = passCounts.successfulPasses;
+        point.failedPasses = passCounts.failedPasses;
+        point.passAssists = passCounts.passAssists;
+
+        seriesMap[gse] = point;
+      }
+    });
+
+    const series = Object.values(seriesMap).sort(
+      (a, b) => Number(a.gameSecondsElapsed) - Number(b.gameSecondsElapsed)
+    );
 
     if (viewMode === "total") {
       return series.length > 0 ? [series[series.length - 1]] : [];
     }
 
     return series;
-  }, [filteredHistory, viewMode, selectedPlayers, players, sortedPossession]);
+  }, [filteredHistory, viewMode, selectedPlayers, players, sortedPossession, sortedPassEvents, timeRangeStart, timeRangeEnd]);
 
   const pdfTeamChartData = useMemo(() => {
     if (sortedHistory.length === 0) return [];
@@ -476,6 +556,10 @@ export default function GameStats() {
       const possAt = getPossessionAt(entry.gameSecondsElapsed ?? 0);
       totals.homePossession = possAt.homePossession;
       totals.awayPossession = possAt.awayPossession;
+      const passCounts = getPassCountsAt(entry.gameSecondsElapsed ?? 0);
+      totals.successfulPasses = passCounts.successfulPasses;
+      totals.failedPasses = passCounts.failedPasses;
+      totals.passAssists = passCounts.passAssists;
       series.push({
         gameSecondsElapsed: entry.gameSecondsElapsed ?? 0,
         label: formatPeriodClock(entry.period ?? 1, entry.clockSecondsRemaining ?? 1200),
@@ -483,7 +567,7 @@ export default function GameStats() {
       });
     });
     return series;
-  }, [sortedHistory, sortedPossession]);
+  }, [sortedHistory, sortedPossession, sortedPassEvents]);
 
   const pdfPlayerChartData = useMemo(() => {
     return players

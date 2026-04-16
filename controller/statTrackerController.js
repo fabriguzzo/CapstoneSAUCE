@@ -441,3 +441,29 @@ exports.getLatestPossession = async function (req, res) {
     return res.status(500).json({ error: 'Failed to retrieve latest possession' });
   }
 };
+
+// Update a game event (e.g. mark a successful pass as an assist)
+exports.updateEvent = async function (req, res) {
+  try {
+    const eventId = req.params.id;
+    if (!eventId) return res.status(400).json({ error: 'Event ID is required' });
+
+    const allowedFields = ['isAssist'];
+    const update = {};
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) update[field] = req.body[field];
+    }
+
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    const updated = await dao.updateEvent(eventId, update);
+    if (!updated) return res.status(404).json({ error: 'Event not found' });
+
+    return res.status(200).json(updated);
+  } catch (err) {
+    console.error('Error updating game event:', err);
+    return res.status(500).json({ error: 'Failed to update game event' });
+  }
+};

@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 // ── GameEvent: unified event log for both teams (replaces Faceoff + HitPenalty) ──
 
-const EVENT_TYPES = ['faceoff', 'hit', 'penalty', 'goal', 'assist', 'shot', 'save', 'goal_against'];
+const EVENT_TYPES = ['faceoff', 'hit', 'penalty', 'goal', 'assist', 'shot', 'save', 'goal_against', 'pass_success', 'pass_fail'];
 
 const GameEventSchema = new mongoose.Schema(
   {
@@ -28,6 +28,9 @@ const GameEventSchema = new mongoose.Schema(
 
     // Penalty-specific
     penaltyMinutes: { type: Number, default: 0, min: 0 },
+
+    // Pass-specific
+    isAssist: { type: Boolean, default: false },
 
     // Game-clock context
     period: { type: Number, default: 1, min: 1 },
@@ -71,6 +74,10 @@ exports.deleteLastEvent = async (gameId, eventType) => {
 
 exports.deleteAllEvents = async (filter = {}) => {
   return await GameEvent.deleteMany(filter);
+};
+
+exports.updateEvent = async (eventId, updateData) => {
+  return await GameEvent.findByIdAndUpdate(eventId, updateData, { new: true }).lean();
 };
 
 exports.GameEvent = GameEvent;
