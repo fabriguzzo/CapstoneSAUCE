@@ -9,6 +9,11 @@ const VALID_KEYS = new Set([
   "hits",
   "pim",
   "saves",
+  "faceoff_tracker",
+  "hit_penalty_tracker",
+  "shots_goals_tracker",
+  "time_of_possession",
+  "pass_tracker",
 ]);
 
 const STAT_LABELS = {
@@ -18,6 +23,11 @@ const STAT_LABELS = {
   hits: "Hits",
   pim: "PIM",
   saves: "Saves",
+  faceoff_tracker: "Faceoff Tracker",
+  hit_penalty_tracker: "Hit & Penalty Tracker",
+  shots_goals_tracker: "Shots & Goals Tracker",
+  time_of_possession: "Time of Possession",
+  pass_tracker: "Pass Tracker",
 };
 
 exports.getAll = async (req, res) => {

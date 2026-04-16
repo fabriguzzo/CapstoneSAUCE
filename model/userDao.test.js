@@ -55,7 +55,7 @@ describe('UserDAO Module', () => {
 
     test('should have correct defaults and enums', () => {
       expect(User.schema.path('status').defaultValue).toBe('pending');
-      expect(User.schema.path('role').enumValues).toEqual(['coach', 'member']);
+      expect(User.schema.path('role').enumValues).toEqual(['coach', 'member', 'admin']);
       expect(User.schema.path('status').enumValues).toEqual(['pending', 'approved']);
     });
 

@@ -9,7 +9,7 @@ const StatRoleSchema = new mongoose.Schema(
     statKey: {
       type: String,
       required: true,
-      enum: ["goals", "assists", "shots", "hits", "pim", "saves"],
+      enum: ["goals", "assists", "shots", "hits", "pim", "saves", "faceoff_tracker", "hit_penalty_tracker", "shots_goals_tracker", "time_of_possession", "pass_tracker"],
     },
   },
   { timestamps: true }

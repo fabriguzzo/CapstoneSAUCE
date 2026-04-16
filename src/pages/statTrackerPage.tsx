@@ -7,8 +7,6 @@ import {
   CircularProgress,
   Container,
   FormControl,
-  Grid,
-  IconButton,
   InputLabel,
   MenuItem,
   Paper,
@@ -16,7 +14,6 @@ import {
   SelectChangeEvent,
   Stack,
   Typography,
-  TextField,
   Divider,
   Button,
   Dialog,
@@ -31,9 +28,6 @@ import {
   TableCell,
   TableContainer,
 } from "@mui/material";
-import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
-import ChevronRightIcon from "@mui/icons-material/ChevronRight";
-import { motion, AnimatePresence } from "framer-motion";
 import Navbar from "../components/Navbar";
 
 type Team = { _id: string; name: string };
@@ -112,14 +106,6 @@ const API = {
 const PERIOD_LENGTH_SECONDS = 20 * 60;
 const CREAM = "#fff2d1";
 const GREEN = "#005F02";
-const PAGE_SIZE = 5;
-const SWIPE_THRESHOLD = 80;
-
-const intOrZero = (v: any) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.trunc(n) : 0;
-};
-
 const formatClock = (seconds: number) => {
   const safe = Math.max(0, seconds);
   const mins = Math.floor(safe / 60);
@@ -194,15 +180,8 @@ export default function StatTrackerPage() {
 
   const [loadingTeams, setLoadingTeams] = useState(false);
   const [loadingGameData, setLoadingGameData] = useState(false);
-  const [savingOne, setSavingOne] = useState(false);
-
-  const [pageIndex, setPageIndex] = useState(0);
 
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
-  const [editingStatKey, setEditingStatKey] = useState<keyof StatLine>("goals");
-  const [editingValue, setEditingValue] = useState<number>(0);
 
   const [currentPeriod, setCurrentPeriod] = useState<number>(1);
   const [clockSecondsRemaining, setClockSecondsRemaining] = useState<number>(PERIOD_LENGTH_SECONDS);
@@ -225,6 +204,9 @@ export default function StatTrackerPage() {
   // Shots/Goals state
   const [shotGoals, setShotGoals] = useState<GameEventRecord[]>([]);
   const [sgSaving, setSgSaving] = useState(false);
+
+  // Assigned tracker sections for this user
+  const [assignedTrackers, setAssignedTrackers] = useState<string[]>([]);
 
   // Possession tracker state
   const [possessionOwner, setPossessionOwner] = useState<"home" | "away" | "none">("none");
@@ -287,13 +269,35 @@ export default function StatTrackerPage() {
     })();
   }, [authFetch, user?.teamId]);
 
+  // Fetch this user's assigned tracker sections
+  useEffect(() => {
+    if (!user) return;
+    // Coaches always have access to everything
+    if (user.role === 'coach') {
+      setAssignedTrackers(['faceoff_tracker', 'hit_penalty_tracker', 'shots_goals_tracker', 'time_of_possession', 'pass_tracker']);
+      return;
+    }
+    const userId = (user as any).id || (user as any)._id;
+    if (!userId) return;
+    (async () => {
+      try {
+        const res = await authFetch(`/api/stat-roles?assigneeUserId=${encodeURIComponent(userId)}`);
+        if (res.ok) {
+          const data: { statKey: string }[] = await res.json();
+          setAssignedTrackers(data.map((r) => r.statKey));
+        }
+      } catch (e) {
+        console.error('Failed to load assigned trackers', e);
+      }
+    })();
+  }, [authFetch, user]);
+
   useEffect(() => {
     if (!teamId) {
       setGames([]);
       setPlayers([]);
       setGameId("");
       setLinesByPlayerId({});
-      setPageIndex(0);
       return;
     }
 
@@ -313,7 +317,6 @@ export default function StatTrackerPage() {
         setPlayers(Array.isArray(pData) ? pData : []);
         setGameId("");
         setLinesByPlayerId({});
-        setPageIndex(0);
       } catch (e) {
         console.error(e);
         setMsg({ type: "error", text: "Failed to load games/players." });
@@ -326,7 +329,6 @@ export default function StatTrackerPage() {
   useEffect(() => {
     if (!teamId || !gameId) {
       setLinesByPlayerId({});
-      setPageIndex(0);
       return;
     }
 
@@ -381,7 +383,6 @@ export default function StatTrackerPage() {
         }
 
         setLinesByPlayerId(map);
-        setPageIndex(0);
       } catch (e) {
         console.error(e);
         setMsg({ type: "error", text: "Failed to load stats." });
@@ -414,25 +415,6 @@ export default function StatTrackerPage() {
   }, [selectedGame]);
 
   const sortedPlayers = useMemo(() => [...players].sort((a, b) => a.number - b.number), [players]);
-
-  const totalPages = useMemo(
-    () => Math.max(1, Math.ceil(sortedPlayers.length / PAGE_SIZE)),
-    [sortedPlayers.length]
-  );
-
-  const pagePlayers = useMemo(() => {
-    const start = pageIndex * PAGE_SIZE;
-    return sortedPlayers.slice(start, start + PAGE_SIZE).map((p) => ({
-      player: p,
-      stat: linesByPlayerId[p._id],
-    }));
-  }, [sortedPlayers, linesByPlayerId, pageIndex]);
-
-  const canPrev = pageIndex > 0;
-  const canNext = pageIndex < totalPages - 1;
-
-  const prevPage = () => setPageIndex((v) => Math.max(0, v - 1));
-  const nextPage = () => setPageIndex((v) => Math.min(totalPages - 1, v + 1));
 
   const toggleClock = async () => {
     if (!gameId) return;
@@ -1310,7 +1292,7 @@ export default function StatTrackerPage() {
             )}
           </Paper>
 
-          {selectedGame && (
+          {selectedGame && assignedTrackers.includes('faceoff_tracker') && (
             <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
               <Stack spacing={2}>
                 <Typography sx={{ color: GREEN, fontWeight: 1000, fontSize: 24 }}>
@@ -1409,72 +1391,8 @@ export default function StatTrackerPage() {
             </Paper>
           )}
 
-          <Paper elevation={6} sx={{ borderRadius: 4, p: 2.5 }}>
-            {!teamId || !gameId ? (
-              <Box sx={{ p: 2 }}>
-                <Typography sx={{ color: GREEN, fontWeight: 700 }}>
-                  Select a team and game to begin.
-                </Typography>
-              </Box>
-            ) : (
-              <Stack spacing={2}>
-                <Stack direction="row" alignItems="center" spacing={1}>
-                  <IconButton onClick={prevPage} disabled={!canPrev}>
-                    <ChevronLeftIcon />
-                  </IconButton>
-
-                  <Typography sx={{ fontWeight: 1000, color: GREEN }}>
-                    Players {pageIndex * PAGE_SIZE + 1}–
-                    {Math.min(sortedPlayers.length, (pageIndex + 1) * PAGE_SIZE)} of{" "}
-                    {sortedPlayers.length}
-                  </Typography>
-
-                  <IconButton onClick={nextPage} disabled={!canNext}>
-                    <ChevronRightIcon />
-                  </IconButton>
-
-                  <Box sx={{ flex: 1 }} />
-
-                  <Typography sx={{ color: GREEN, fontWeight: 1000 }}>
-                    Page {pageIndex + 1}/{totalPages}
-                  </Typography>
-                </Stack>
-
-                <Box sx={{ overflow: "visible" }}>
-                  <Box
-                    component={motion.div}
-                    drag="x"
-                    dragConstraints={{ left: 0, right: 0 }}
-                    dragElastic={0.15}
-                    onDragEnd={(_, info) => {
-                      if (info.offset.x > SWIPE_THRESHOLD) prevPage();
-                      else if (info.offset.x < -SWIPE_THRESHOLD) nextPage();
-                    }}
-                    sx={{ pointerEvents: editingPlayerId ? "none" : "auto" }}
-                  >
-                    <Grid container spacing={2} sx={{ flexWrap: { xs: "wrap", md: "nowrap" } }}>
-                      {pagePlayers.map(({ player, stat }) => (
-                        <Grid item xs={12} sm={6} md={2.4 as any} key={player._id}>
-                          <PlayerFifaCard
-                            player={player}
-                            stat={stat}
-                            onClick={() => openEdit(player._id)}
-                          />
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </Box>
-                </Box>
-
-                <Typography sx={{ opacity: 0.6, fontSize: 12, color: GREEN }}>
-                  Tip: Swipe left/right (or use arrows) to move between groups of 5.
-                </Typography>
-              </Stack>
-            )}
-          </Paper>
-
           {/* ── Faceoff Tracker Section ── */}
-          {selectedGame && opponentRoster.length > 0 && (
+          {selectedGame && opponentRoster.length > 0 && assignedTrackers.includes('faceoff_tracker') && (
             <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
               <Typography
                 sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}
@@ -1711,7 +1629,7 @@ export default function StatTrackerPage() {
           )}
 
           {/* ── Hit & Penalty Tracker Section ── */}
-          {selectedGame && (
+          {selectedGame && assignedTrackers.includes('hit_penalty_tracker') && (
             <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
               <Typography
                 sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}
@@ -2008,7 +1926,7 @@ export default function StatTrackerPage() {
           )}
 
           {/* ── Shots & Goals Tracker Section ── */}
-          {selectedGame && (
+          {selectedGame && assignedTrackers.includes('shots_goals_tracker') && (
             <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
               <Typography sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}>
                 Shots & Goals Tracker
@@ -2194,7 +2112,7 @@ export default function StatTrackerPage() {
           )}
 
           {/* ── Time of Possession Tracker ── */}
-          {selectedGame && (
+          {selectedGame && assignedTrackers.includes('time_of_possession') && (
             <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
               <Typography
                 sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}
@@ -2304,7 +2222,7 @@ export default function StatTrackerPage() {
           )}
 
           {/* ── Pass Tracker Section ── */}
-          {selectedGame && (
+          {selectedGame && assignedTrackers.includes('pass_tracker') && (
             <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
               <Typography
                 sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}

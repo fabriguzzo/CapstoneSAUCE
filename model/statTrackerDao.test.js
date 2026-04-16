@@ -212,7 +212,7 @@ describe("statTrackerDao.js", () => {
     expect(dao.StatLine).toBe(StatLineMock);
     expect(dao.StatHistory).toBe(StatHistoryMock);
     expect(dao.GameEvent).toBe(GameEventMock);
-    expect(dao.EVENT_TYPES).toEqual(["faceoff", "hit", "penalty", "goal", "assist", "shot", "save", "goal_against"]);
+    expect(dao.EVENT_TYPES).toEqual(["faceoff", "hit", "penalty", "goal", "assist", "shot", "save", "goal_against", "pass_success", "pass_fail"]);
   });
 
   test("create saves StatLine and history", async () => {
