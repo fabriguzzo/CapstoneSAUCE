@@ -76,9 +76,7 @@ function makeValidCreateBody(overrides = {}) {
     shots: 2,
     hits: 0,
     pim: 0,
-    plusMinus: 0,
     saves: 0,
-    goalsAgainst: 0,
     ...overrides,
   };
 }
@@ -95,9 +93,7 @@ function makeValidBulkBody(overrides = {}) {
         shots: 2,
         hits: 0,
         pim: 0,
-        plusMinus: 0,
         saves: 0,
-        goalsAgainst: 0,
       },
       {
         playerId: "p2",
@@ -106,9 +102,7 @@ function makeValidBulkBody(overrides = {}) {
         shots: 1,
         hits: 1,
         pim: 0,
-        plusMinus: -1,
         saves: 0,
-        goalsAgainst: 0,
       },
     ],
     ...overrides,
@@ -230,7 +224,7 @@ describe("statTrackerController Module", () => {
       const res = makeRes();
 
       dao.readAll.mockResolvedValue([
-        { playerId: "p1", gameId: "g1", teamId: "t1", goals: 1, assists: 0, shots: 0, hits: 0, pim: 0, plusMinus: 0, saves: 0, goalsAgainst: 0 },
+        { playerId: "p1", gameId: "g1", teamId: "t1", goals: 1, assists: 0, shots: 0, hits: 0, pim: 0, saves: 0 },
       ]);
 
       await controller.getAll(req, res);
@@ -283,14 +277,14 @@ describe("statTrackerController Module", () => {
 
   describe("update", () => {
     test("200: updates stat line when valid", async () => {
-      const req = { params: { id: "s1" }, body: { goals: 2, plusMinus: -1 } };
+      const req = { params: { id: "s1" }, body: { goals: 2 } };
       const res = makeRes();
 
-      dao.update.mockResolvedValue({ _id: "s1", goals: 2, plusMinus: -1 });
+      dao.update.mockResolvedValue({ _id: "s1", goals: 2 });
 
       await controller.update(req, res);
 
-      expect(dao.update).toHaveBeenCalledWith("s1", { goals: 2, plusMinus: -1 });
+      expect(dao.update).toHaveBeenCalledWith("s1", { goals: 2 });
       expect(res.status).toHaveBeenCalledWith(200);
     });
 

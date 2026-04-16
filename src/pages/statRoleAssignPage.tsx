@@ -41,9 +41,7 @@ type StatKey =
   | "shots"
   | "hits"
   | "pim"
-  | "plusMinus"
-  | "saves"
-  | "goalsAgainst";
+  | "saves";
 
 const API = {
   team: "/api/teams",
@@ -60,9 +58,7 @@ const STAT_OPTIONS: { key: StatKey; label: string }[] = [
   { key: "shots", label: "Shots" },
   { key: "hits", label: "Hits" },
   { key: "pim", label: "PIM" },
-  { key: "plusMinus", label: "Plus/Minus" },
   { key: "saves", label: "Saves" },
-  { key: "goalsAgainst", label: "Goals Against" },
 ];
 
 export default function StatRoleAssignPage() {

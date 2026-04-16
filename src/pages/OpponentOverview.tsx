@@ -54,9 +54,7 @@ interface FinalStat {
   shots: number;
   hits: number;
   pim: number;
-  plusMinus: number;
   saves: number;
-  goalsAgainst: number;
 }
 
 interface Team {
@@ -70,9 +68,7 @@ const STAT_FIELDS = [
   { key: "shots", label: "Shots", color: "#ffc658" },
   { key: "hits", label: "Hits", color: "#ff7300" },
   { key: "pim", label: "PIM", color: "#ef4444" },
-  { key: "plusMinus", label: "+/-", color: "#3b82f6" },
   { key: "saves", label: "Saves", color: "#10b981" },
-  { key: "goalsAgainst", label: "Goals Against", color: "#f43f5e" },
 ] as const;
 
 const CREAM = "#fff2d1";

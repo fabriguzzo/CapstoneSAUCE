@@ -101,9 +101,7 @@ const StatHistorySchema = new mongoose.Schema(
     shots: { type: Number, default: 0, min: 0 },
     hits: { type: Number, default: 0, min: 0 },
     pim: { type: Number, default: 0, min: 0 },
-    plusMinus: { type: Number, default: 0 },
     saves: { type: Number, default: 0, min: 0 },
-    goalsAgainst: { type: Number, default: 0, min: 0 },
     faceoffsWon: { type: Number, default: 0, min: 0 },
     faceoffsLost: { type: Number, default: 0, min: 0 }
   },
@@ -126,9 +124,7 @@ const StatLineSchema = new mongoose.Schema(
     shots: { type: Number, default: 0, min: 0 },
     hits: { type: Number, default: 0, min: 0 },
     pim: { type: Number, default: 0, min: 0 },
-    plusMinus: { type: Number, default: 0 },
     saves: { type: Number, default: 0, min: 0 },
-    goalsAgainst: { type: Number, default: 0, min: 0 },
     faceoffsWon: { type: Number, default: 0, min: 0 },
     faceoffsLost: { type: Number, default: 0, min: 0 }
   },
@@ -158,9 +154,7 @@ const buildHistoryDoc = (statData) => ({
   shots: statData.shots || 0,
   hits: statData.hits || 0,
   pim: statData.pim || 0,
-  plusMinus: statData.plusMinus || 0,
   saves: statData.saves || 0,
-  goalsAgainst: statData.goalsAgainst || 0,
   faceoffsWon: statData.faceoffsWon || 0,
   faceoffsLost: statData.faceoffsLost || 0
 });
@@ -333,9 +327,7 @@ exports.getFinalStatsForGames = async (gameIds) => {
         shots: { $last: '$shots' },
         hits: { $last: '$hits' },
         pim: { $last: '$pim' },
-        plusMinus: { $last: '$plusMinus' },
         saves: { $last: '$saves' },
-        goalsAgainst: { $last: '$goalsAgainst' },
         faceoffsWon: { $last: '$faceoffsWon' },
         faceoffsLost: { $last: '$faceoffsLost' },
       }

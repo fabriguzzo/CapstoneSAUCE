@@ -9,7 +9,7 @@ const NotificationSchema = new mongoose.Schema(
     statKey: {
       type: String,
       required: true,
-      enum: ['goals', 'assists', 'shots', 'hits', 'pim', 'plusMinus', 'saves', 'goalsAgainst'],
+      enum: ['goals', 'assists', 'shots', 'hits', 'pim', 'saves'],
     },
     message: { type: String, required: true, trim: true },
     assignedAt: { type: Date, required: true, default: Date.now },

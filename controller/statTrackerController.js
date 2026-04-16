@@ -14,19 +14,13 @@ function validateNonNegativeInt(n) {
 function validateStatPayload(body, { allowMissing = false } = {}) {
   // If allowMissing=true, only validate fields that exist (for PATCH)
   const fields = [
-    'goals', 'assists', 'shots', 'hits', 'pim', 'saves', 'goalsAgainst', 'faceoffsWon', 'faceoffsLost'
+    'goals', 'assists', 'shots', 'hits', 'pim', 'saves', 'faceoffsWon', 'faceoffsLost'
   ];
 
   for (const f of fields) {
     if (allowMissing && body[f] === undefined) continue;
     const val = toIntOrZero(body[f]);
     if (!validateNonNegativeInt(val)) return `${f} must be a non-negative integer`;
-  }
-
-  if (!allowMissing && body.plusMinus === undefined) body.plusMinus = 0;
-  if (!allowMissing || body.plusMinus !== undefined) {
-    const pm = Number(body.plusMinus);
-    if (!Number.isFinite(pm) || !Number.isInteger(pm)) return 'plusMinus must be an integer';
   }
 
   return null;
@@ -62,9 +56,7 @@ exports.create = async function (req, res) {
       shots: toIntOrZero(req.body.shots),
       hits: toIntOrZero(req.body.hits),
       pim: toIntOrZero(req.body.pim),
-      plusMinus: Number(req.body.plusMinus) || 0,
       saves: toIntOrZero(req.body.saves),
-      goalsAgainst: toIntOrZero(req.body.goalsAgainst),
       faceoffsWon: toIntOrZero(req.body.faceoffsWon),
       faceoffsLost: toIntOrZero(req.body.faceoffsLost),
     };
@@ -130,9 +122,7 @@ exports.update = async function (req, res) {
     setIfProvided('shots', req.body.shots !== undefined ? toIntOrZero(req.body.shots) : undefined);
     setIfProvided('hits', req.body.hits !== undefined ? toIntOrZero(req.body.hits) : undefined);
     setIfProvided('pim', req.body.pim !== undefined ? toIntOrZero(req.body.pim) : undefined);
-    setIfProvided('plusMinus', req.body.plusMinus !== undefined ? Number(req.body.plusMinus) : undefined);
     setIfProvided('saves', req.body.saves !== undefined ? toIntOrZero(req.body.saves) : undefined);
-    setIfProvided('goalsAgainst', req.body.goalsAgainst !== undefined ? toIntOrZero(req.body.goalsAgainst) : undefined);
 
     const updated = await dao.update(id, update);
     if (!updated) return res.status(404).json({ error: 'Stat line not found' });
@@ -202,9 +192,7 @@ exports.bulkSave = async function (req, res) {
         shots: toIntOrZero(l.shots),
         hits: toIntOrZero(l.hits),
         pim: toIntOrZero(l.pim),
-        plusMinus: Number(l.plusMinus) || 0,
         saves: toIntOrZero(l.saves),
-        goalsAgainst: toIntOrZero(l.goalsAgainst),
         faceoffsWon: toIntOrZero(l.faceoffsWon),
         faceoffsLost: toIntOrZero(l.faceoffsLost),
         period: Number(historyMeta.period) || 1,

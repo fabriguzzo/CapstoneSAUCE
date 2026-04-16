@@ -8,9 +8,7 @@ const VALID_KEYS = new Set([
   "shots",
   "hits",
   "pim",
-  "plusMinus",
   "saves",
-  "goalsAgainst",
 ]);
 
 const STAT_LABELS = {
@@ -19,9 +17,7 @@ const STAT_LABELS = {
   shots: "Shots",
   hits: "Hits",
   pim: "PIM",
-  plusMinus: "Plus/Minus",
   saves: "Saves",
-  goalsAgainst: "Goals Against",
 };
 
 exports.getAll = async (req, res) => {

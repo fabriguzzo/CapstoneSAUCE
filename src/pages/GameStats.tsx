@@ -26,6 +26,11 @@ import {
   ResponsiveContainer,
   Legend,
   Tooltip,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useAuthFetch } from "../hooks/useAuthFetch";
@@ -68,9 +73,7 @@ interface StatHistoryEntry {
   shots: number;
   hits: number;
   pim: number;
-  plusMinus: number;
   saves: number;
-  goalsAgainst: number;
   faceoffsWon: number;
   faceoffsLost: number;
 }
@@ -93,16 +96,14 @@ const STAT_FIELDS = [
   { key: "shots", label: "Shots", color: "#ffc658" },
   { key: "hits", label: "Hits", color: "#ff7300" },
   { key: "pim", label: "PIM", color: "#ef4444" },
-  { key: "plusMinus", label: "+/-", color: "#3b82f6" },
   { key: "saves", label: "Saves", color: "#10b981" },
-  { key: "goalsAgainst", label: "Goals Against", color: "#f43f5e" },
   { key: "faceoffsWon", label: "Faceoffs Won", color: "#a855f7" },
   { key: "faceoffsLost", label: "Faceoffs Lost", color: "#f97316" },
   { key: "successfulPasses", label: "Successful Passes", color: "#14b8a6" },
   { key: "failedPasses", label: "Failed Passes", color: "#fb923c" },
   { key: "passAssists", label: "Pass Assists", color: "#c084fc" },
-  { key: "homePossession", label: "Home Possession (s)", color: "#06b6d4" },
-  { key: "awayPossession", label: "Away Possession (s)", color: "#d946ef" },
+  { key: "homePossession", label: "Home Possession Time (Seconds)", color: "#06b6d4" },
+  { key: "awayPossession", label: "Away Possession Time (Seconds)", color: "#d946ef" },
 ] as const;
 
 const CREAM = "#fff2d1";
@@ -115,9 +116,7 @@ const PRINTER_STAT_STYLES: Record<string, { shape: string; strokeDasharray: stri
   shots:        { shape: "triangle-up",   strokeDasharray: "2 3",       legendType: "triangle" },
   hits:         { shape: "triangle-down", strokeDasharray: "8 3 2 3",   legendType: "triangle" },
   pim:          { shape: "diamond",       strokeDasharray: "12 3",      legendType: "diamond" },
-  plusMinus:    { shape: "cross",         strokeDasharray: "4 2 4 2",   legendType: "cross" },
   saves:        { shape: "star",          strokeDasharray: "10 4",      legendType: "star" },
-  goalsAgainst: { shape: "x-mark",        strokeDasharray: "2 2",       legendType: "wye" },
   faceoffsWon:  { shape: "pentagon",      strokeDasharray: "16 4 2 4",  legendType: "rect" },
   faceoffsLost: { shape: "hexagon",       strokeDasharray: "8 2 2 2",   legendType: "rect" },
   successfulPasses: { shape: "circle",    strokeDasharray: "10 2 2 2",  legendType: "circle" },
@@ -249,9 +248,13 @@ interface PinnedGraph {
   id: string;
   label: string;
   viewMode: "total" | "cumulative" | "players";
+  chartType: "line" | "bar" | "pie";
+  showOpponent: boolean;
   selectedStats: string[];
   selectedPlayers: string[];
   chartData: Array<Record<string, string | number>>;
+  opponentChartData: Array<Record<string, string | number>>;
+  comparisonData: Array<{ stat: string; home: number; opponent: number; key: string }>;
   players: Player[];
 }
 
@@ -271,6 +274,8 @@ export default function GameStats() {
   const [isLoading, setIsLoading] = useState(true);
 
   const [viewMode, setViewMode] = useState<"total" | "cumulative" | "players">("cumulative");
+  const [chartType, setChartType] = useState<"line" | "bar" | "pie">("line");
+  const [showOpponent, setShowOpponent] = useState(false);
   const [selectedPlayers, setSelectedPlayers] = useState<string[]>([]);
   const [selectedStats, setSelectedStats] = useState<string[]>(["goals", "assists", "shots", "hits"]);
   const [timeRangeStart, setTimeRangeStart] = useState<number | "">("");
@@ -452,9 +457,7 @@ export default function GameStats() {
         shots: entry.shots ?? 0,
         hits: entry.hits ?? 0,
         pim: entry.pim ?? 0,
-        plusMinus: entry.plusMinus ?? 0,
         saves: entry.saves ?? 0,
-        goalsAgainst: entry.goalsAgainst ?? 0,
         faceoffsWon: entry.faceoffsWon ?? 0,
         faceoffsLost: entry.faceoffsLost ?? 0,
       };
@@ -533,6 +536,51 @@ export default function GameStats() {
     return series;
   }, [filteredHistory, viewMode, selectedPlayers, players, sortedPossession, sortedPassEvents, timeRangeStart, timeRangeEnd]);
 
+  // Aggregate opponent (away) event data from gameEvents for charts
+  const opponentChartData = useMemo(() => {
+    const awayEvents = gameEvents.filter((e) => (e as Record<string, unknown>).team === "away");
+    if (awayEvents.length === 0) return [];
+
+    // Build cumulative counts over game time
+    const sorted = [...awayEvents].sort(
+      (a, b) => (a.gameSecondsElapsed ?? 0) - (b.gameSecondsElapsed ?? 0)
+    );
+
+    const counts: Record<string, number> = { goals: 0, shots: 0, hits: 0 };
+    const series: Array<Record<string, string | number>> = [];
+
+    sorted.forEach((ev) => {
+      const evAny = ev as Record<string, unknown>;
+      if (evAny.eventType === "goal") { counts.goals++; counts.shots++; }
+      else if (evAny.eventType === "shot") counts.shots++;
+      else if (evAny.eventType === "hit") counts.hits++;
+
+      series.push({
+        gameSecondsElapsed: ev.gameSecondsElapsed ?? 0,
+        label: formatPeriodClock(ev.period ?? 1, ev.clockSecondsRemaining ?? 1200),
+        goals: counts.goals,
+        shots: counts.shots,
+        hits: counts.hits,
+      });
+    });
+
+    return series;
+  }, [gameEvents]);
+
+  // Build pie/bar comparison data: home team final totals vs opponent final totals
+  const comparisonData = useMemo(() => {
+    // Get home team final totals from chartData
+    const homeRow = chartData.length > 0 ? chartData[chartData.length - 1] : null;
+    // Get opponent final totals from opponentChartData
+    const oppRow = opponentChartData.length > 0 ? opponentChartData[opponentChartData.length - 1] : null;
+
+    return STAT_FIELDS.map((sf) => {
+      const homeVal = homeRow ? Number(homeRow[sf.key]) || 0 : 0;
+      const oppVal = oppRow ? Number(oppRow[sf.key]) || 0 : 0;
+      return { stat: sf.label, home: homeVal, opponent: oppVal, key: sf.key };
+    });
+  }, [chartData, opponentChartData]);
+
   const pdfTeamChartData = useMemo(() => {
     if (sortedHistory.length === 0) return [];
     const snapshotsByPlayer: Record<string, Record<string, number>> = {};
@@ -586,9 +634,7 @@ export default function GameStats() {
           shots: entry.shots ?? 0,
           hits: entry.hits ?? 0,
           pim: entry.pim ?? 0,
-          plusMinus: entry.plusMinus ?? 0,
           saves: entry.saves ?? 0,
-          goalsAgainst: entry.goalsAgainst ?? 0,
           faceoffsWon: entry.faceoffsWon ?? 0,
           faceoffsLost: entry.faceoffsLost ?? 0,
         }));
@@ -624,13 +670,18 @@ export default function GameStats() {
         : viewMode === "total"
         ? "Final Total"
         : "Players";
+    const chartLabel = chartType === "bar" ? "Bar" : chartType === "pie" ? "Pie" : "Line";
     const pinned: PinnedGraph = {
       id: `pin-${Date.now()}`,
-      label: `${modeLabel} · ${statLabels || "No stats"}`,
+      label: `${modeLabel} · ${chartLabel} · ${statLabels || "No stats"}${showOpponent ? " (+ Opponent)" : ""}`,
       viewMode,
+      chartType,
+      showOpponent,
       selectedStats: [...selectedStats],
       selectedPlayers: [...selectedPlayers],
       chartData: chartData.map((d) => ({ ...d })),
+      opponentChartData: opponentChartData.map((d) => ({ ...d })),
+      comparisonData: comparisonData.map((d) => ({ ...d })),
       players: [...players],
     };
     setPinnedGraphs((prev) => [...prev, pinned]);
@@ -1111,7 +1162,66 @@ export default function GameStats() {
               </Box>
             </>
           )}
+
+          <Typography sx={{ fontWeight: 800, color: GREEN, mt: 3, mb: 1 }}>
+            Chart Type:
+          </Typography>
+          <Stack direction="row" spacing={1} flexWrap="wrap">
+            {(["line", "bar", "pie"] as const).map((ct) => (
+              <Chip
+                key={ct}
+                label={ct === "line" ? "Line Graph" : ct === "bar" ? "Bar Graph" : "Pie Chart"}
+                onClick={() => setChartType(ct)}
+                sx={{
+                  bgcolor: chartType === ct ? GREEN : "rgba(0,95,2,.1)",
+                  color: chartType === ct ? CREAM : GREEN,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              />
+            ))}
+          </Stack>
+
+          {chartType === "line" && (
+            <>
+              <Typography sx={{ fontWeight: 800, color: GREEN, mt: 3, mb: 1 }}>
+                Opponent Data:
+              </Typography>
+              <Chip
+                label={showOpponent ? "Showing Opponent" : "Show Opponent"}
+                onClick={() => setShowOpponent((prev) => !prev)}
+                sx={{
+                  bgcolor: showOpponent ? "#f43f5e" : "rgba(0,95,2,.1)",
+                  color: showOpponent ? "#fff" : GREEN,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              />
+            </>
+          )}
         </Paper>
+
+        {/* Pin Graph button — above chart */}
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 1 }}>
+          <Button
+            variant="contained"
+            startIcon={<PinOutlinedIcon />}
+            onClick={handlePinGraph}
+            disabled={chartData.length === 0}
+            sx={{
+              bgcolor: GREEN,
+              color: CREAM,
+              fontWeight: 700,
+              "&:hover": { bgcolor: DARK_GREEN },
+              "&.Mui-disabled": {
+                bgcolor: "rgba(0,95,2,0.3)",
+                color: "rgba(255,242,209,0.5)",
+              },
+            }}
+          >
+            Pin This Graph
+          </Button>
+        </Box>
 
         <Paper
           elevation={6}
@@ -1123,36 +1233,72 @@ export default function GameStats() {
             position: "relative",
           }}
         >
-          <MuiTooltip title="Pin this graph" placement="top">
-            <IconButton
-              onClick={handlePinGraph}
-              disabled={chartData.length === 0}
-              sx={{
-                position: "absolute",
-                top: 12,
-                right: 12,
-                color: CREAM,
-                bgcolor: "rgba(255,242,209,0.12)",
-                "&:hover": { bgcolor: "rgba(255,242,209,0.22)" },
-                "&.Mui-disabled": { color: "rgba(255,242,209,0.25)" },
-                zIndex: 1,
-              }}
-            >
-              <PinOutlinedIcon />
-            </IconButton>
-          </MuiTooltip>
           {chartData.length === 0 ? (
             <Typography sx={{ textAlign: "center", py: 8, color: CREAM, opacity: 0.7 }}>
               No stat history data available for this game.
             </Typography>
-          ) : (
+          ) : chartType === "bar" ? (
             <ResponsiveContainer width="100%" height={500}>
-              <LineChart data={chartData}>
+              <BarChart data={comparisonData.filter((d) => selectedStats.includes(d.key))}>
+                <CartesianGrid stroke={CREAM} strokeDasharray="5 5" strokeOpacity={0.3} />
+                <XAxis dataKey="stat" stroke={CREAM} tick={{ fill: CREAM, fontWeight: 600 }} />
+                <YAxis stroke={CREAM} tick={{ fill: CREAM, fontWeight: 600 }} />
+                <Tooltip />
+                <Legend wrapperStyle={{ color: CREAM }} />
+                <Bar dataKey="home" name={teamName || "Home"} fill="#06b6d4" />
+                <Bar dataKey="opponent" name={game?.opponent?.teamName || "Opponent"} fill="#f43f5e" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : chartType === "pie" ? (
+            <Box sx={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 4 }}>
+              {comparisonData.filter((d) => selectedStats.includes(d.key)).map((d) => {
+                const total = d.home + d.opponent;
+                const homePct = total > 0 ? ((d.home / total) * 100).toFixed(1) : "0.0";
+                const oppPct = total > 0 ? ((d.opponent / total) * 100).toFixed(1) : "0.0";
+                const homeShort = (teamName || "Home").length > 12 ? (teamName || "Home").slice(0, 11) + "…" : (teamName || "Home");
+                const oppShort = (game?.opponent?.teamName || "Opponent").length > 12 ? (game?.opponent?.teamName || "Opponent").slice(0, 11) + "…" : (game?.opponent?.teamName || "Opponent");
+                const pieData = [
+                  { name: homeShort, value: d.home },
+                  { name: oppShort, value: d.opponent },
+                ];
+                const COLORS = ["#06b6d4", "#f43f5e"];
+                return (
+                  <Box key={d.key} sx={{ textAlign: "center" }}>
+                    <Typography sx={{ color: CREAM, fontWeight: 700, mb: 1 }}>{d.stat}</Typography>
+                    <PieChart width={300} height={250}>
+                      <Pie
+                        data={pieData}
+                        cx={150}
+                        cy={115}
+                        innerRadius={50}
+                        outerRadius={85}
+                        dataKey="value"
+                      >
+                        {pieData.map((_, idx) => (
+                          <Cell key={idx} fill={COLORS[idx]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                      <Legend />
+                    </PieChart>
+                    <Typography sx={{ color: CREAM, fontSize: 13, opacity: 0.8 }}>
+                      {teamName || "Home"}: {d.home} ({homePct}%) · {game?.opponent?.teamName || "Opponent"}: {d.opponent} ({oppPct}%)
+                    </Typography>
+                  </Box>
+                );
+              })}
+            </Box>
+          ) : (
+            /* Line chart */
+            <ResponsiveContainer width="100%" height={500}>
+              <LineChart data={showOpponent ? opponentChartData : chartData}>
                 <CartesianGrid stroke={CREAM} strokeDasharray="5 5" strokeOpacity={0.3} />
                 <XAxis
-                  dataKey="gameSecondsElapsed"
+                  dataKey="label"
                   stroke={CREAM}
-                  tick={{ fill: CREAM, fontWeight: 600 }}
+                  tick={{ fill: CREAM, fontWeight: 600, fontSize: 11 }}
+                  interval="preserveStartEnd"
+                  minTickGap={60}
                 />
                 <YAxis
                   stroke={CREAM}
@@ -1168,7 +1314,24 @@ export default function GameStats() {
                 />
                 <Legend wrapperStyle={{ color: CREAM }} />
 
-                {viewMode === "players"
+                {showOpponent
+                  ? STAT_FIELDS.filter(
+                      (stat) =>
+                        selectedStats.includes(stat.key) &&
+                        ["goals", "shots", "hits"].includes(stat.key)
+                    ).map((stat) => (
+                      <Line
+                        key={stat.key}
+                        type="monotone"
+                        dataKey={stat.key}
+                        stroke={stat.color}
+                        strokeWidth={3}
+                        strokeDasharray="6 3"
+                        dot={{ r: 5, fill: stat.color, strokeWidth: 2, stroke: CREAM }}
+                        name={`${game?.opponent?.teamName || "Opponent"} ${stat.label}`}
+                      />
+                    ))
+                  : viewMode === "players"
                   ? STAT_FIELDS.filter((stat) => selectedStats.includes(stat.key)).flatMap((stat) =>
                       selectedPlayers.map((playerId) => {
                         const player = players.find((p) => p._id === playerId);
@@ -1277,14 +1440,59 @@ export default function GameStats() {
                     <Typography sx={{ textAlign: "center", py: 4, color: CREAM, opacity: 0.5 }}>
                       No data captured in this snapshot.
                     </Typography>
+                  ) : pinned.chartType === "bar" ? (
+                    <ResponsiveContainer width="100%" height={340}>
+                      <BarChart data={pinned.comparisonData.filter((d) => pinned.selectedStats.includes(d.key))}>
+                        <CartesianGrid stroke={CREAM} strokeDasharray="5 5" strokeOpacity={0.3} />
+                        <XAxis dataKey="stat" stroke={CREAM} tick={{ fill: CREAM, fontWeight: 600 }} />
+                        <YAxis stroke={CREAM} tick={{ fill: CREAM, fontWeight: 600 }} />
+                        <Tooltip />
+                        <Legend wrapperStyle={{ color: CREAM }} />
+                        <Bar dataKey="home" name={teamName || "Home"} fill="#06b6d4" />
+                        <Bar dataKey="opponent" name={game?.opponent?.teamName || "Opponent"} fill="#f43f5e" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : pinned.chartType === "pie" ? (
+                    <Box sx={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 4 }}>
+                      {pinned.comparisonData.filter((d) => pinned.selectedStats.includes(d.key)).map((d) => {
+                        const total = d.home + d.opponent;
+                        const homePct = total > 0 ? ((d.home / total) * 100).toFixed(1) : "0.0";
+                        const oppPct = total > 0 ? ((d.opponent / total) * 100).toFixed(1) : "0.0";
+                        const homeShort = (teamName || "Home").length > 12 ? (teamName || "Home").slice(0, 11) + "\u2026" : (teamName || "Home");
+                        const oppShort = (game?.opponent?.teamName || "Opponent").length > 12 ? (game?.opponent?.teamName || "Opponent").slice(0, 11) + "\u2026" : (game?.opponent?.teamName || "Opponent");
+                        const pieData = [
+                          { name: homeShort, value: d.home },
+                          { name: oppShort, value: d.opponent },
+                        ];
+                        const COLORS = ["#06b6d4", "#f43f5e"];
+                        return (
+                          <Box key={d.key} sx={{ textAlign: "center" }}>
+                            <Typography sx={{ color: CREAM, fontWeight: 700, mb: 1 }}>{d.stat}</Typography>
+                            <PieChart width={300} height={250}>
+                              <Pie data={pieData} cx={150} cy={115} innerRadius={50} outerRadius={85} dataKey="value"
+                                >
+                                {pieData.map((_, idx) => <Cell key={idx} fill={COLORS[idx]} />)}
+                              </Pie>
+                              <Tooltip />
+                              <Legend />
+                            </PieChart>
+                            <Typography sx={{ color: CREAM, fontSize: 13, opacity: 0.8 }}>
+                              {teamName || "Home"}: {d.home} ({homePct}%) · {game?.opponent?.teamName || "Opponent"}: {d.opponent} ({oppPct}%)
+                            </Typography>
+                          </Box>
+                        );
+                      })}
+                    </Box>
                   ) : (
                     <ResponsiveContainer width="100%" height={340}>
-                      <LineChart data={pinned.chartData}>
+                      <LineChart data={pinned.showOpponent ? pinned.opponentChartData : pinned.chartData}>
                         <CartesianGrid stroke={CREAM} strokeDasharray="5 5" strokeOpacity={0.3} />
                         <XAxis
-                          dataKey="gameSecondsElapsed"
+                          dataKey="label"
                           stroke={CREAM}
-                          tick={{ fill: CREAM, fontWeight: 600 }}
+                          tick={{ fill: CREAM, fontWeight: 600, fontSize: 11 }}
+                          interval="preserveStartEnd"
+                          minTickGap={60}
                         />
                         <YAxis
                           stroke={CREAM}
@@ -1300,7 +1508,24 @@ export default function GameStats() {
                         />
                         <Legend wrapperStyle={{ color: CREAM }} />
 
-                        {pinned.viewMode === "players"
+                        {pinned.showOpponent
+                          ? STAT_FIELDS.filter(
+                              (s) =>
+                                pinned.selectedStats.includes(s.key) &&
+                                ["goals", "shots", "hits"].includes(s.key)
+                            ).map((stat) => (
+                              <Line
+                                key={stat.key}
+                                type="monotone"
+                                dataKey={stat.key}
+                                stroke={stat.color}
+                                strokeWidth={2}
+                                strokeDasharray="6 3"
+                                dot={{ r: 4, fill: stat.color, strokeWidth: 2, stroke: CREAM }}
+                                name={`${game?.opponent?.teamName || "Opponent"} ${stat.label}`}
+                              />
+                            ))
+                          : pinned.viewMode === "players"
                           ? STAT_FIELDS.filter((s) => pinned.selectedStats.includes(s.key)).flatMap((stat) =>
                               pinned.selectedPlayers.map((playerId) => {
                                 const player = pinned.players.find((p) => p._id === playerId);
@@ -1426,9 +1651,11 @@ export default function GameStats() {
                     strokeOpacity={0.3}
                   />
                   <XAxis
-                    dataKey="gameSecondsElapsed"
+                    dataKey="label"
                     stroke={CREAM}
-                    tick={{ fill: CREAM, fontWeight: 600 }}
+                    tick={{ fill: CREAM, fontWeight: 600, fontSize: 11 }}
+                    interval="preserveStartEnd"
+                    minTickGap={60}
                   />
                   <YAxis
                     stroke={CREAM}
@@ -1501,9 +1728,11 @@ export default function GameStats() {
                       strokeOpacity={0.3}
                     />
                     <XAxis
-                      dataKey="gameSecondsElapsed"
+                      dataKey="label"
                       stroke={CREAM}
-                      tick={{ fill: CREAM, fontWeight: 600 }}
+                      tick={{ fill: CREAM, fontWeight: 600, fontSize: 11 }}
+                      interval="preserveStartEnd"
+                      minTickGap={60}
                     />
                     <YAxis
                       stroke={CREAM}
@@ -1578,9 +1807,11 @@ export default function GameStats() {
                 <LineChart width={1120} height={480} data={pinned.chartData}>
                   <CartesianGrid stroke="#ccc" strokeDasharray="4 4" strokeOpacity={0.6} />
                   <XAxis
-                    dataKey="gameSecondsElapsed"
+                    dataKey="label"
                     stroke="#000"
-                    tick={{ fill: "#000", fontWeight: 600, fontSize: 12 }}
+                    tick={{ fill: "#000", fontWeight: 600, fontSize: 11 }}
+                    interval="preserveStartEnd"
+                    minTickGap={60}
                   />
                   <YAxis
                     stroke="#000"

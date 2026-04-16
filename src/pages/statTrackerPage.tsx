@@ -71,9 +71,7 @@ type StatLine = {
   shots: number;
   hits: number;
   pim: number;
-  plusMinus: number;
   saves: number;
-  goalsAgainst: number;
   faceoffsWon: number;
   faceoffsLost: number;
 };
@@ -363,9 +361,7 @@ export default function StatTrackerPage() {
               shots: 0,
               hits: 0,
               pim: 0,
-              plusMinus: 0,
               saves: 0,
-              goalsAgainst: 0,
               faceoffsWon: 0,
               faceoffsLost: 0,
             };
@@ -377,9 +373,7 @@ export default function StatTrackerPage() {
               shots: map[p._id].shots ?? 0,
               hits: map[p._id].hits ?? 0,
               pim: map[p._id].pim ?? 0,
-              plusMinus: map[p._id].plusMinus ?? 0,
               saves: map[p._id].saves ?? 0,
-              goalsAgainst: map[p._id].goalsAgainst ?? 0,
               faceoffsWon: map[p._id].faceoffsWon ?? 0,
               faceoffsLost: map[p._id].faceoffsLost ?? 0,
             };
@@ -572,7 +566,7 @@ export default function StatTrackerPage() {
         teamId,
         playerId,
         goals: 0, assists: 0, shots: 0, hits: 0, pim: 0,
-        plusMinus: 0, saves: 0, goalsAgainst: 0, faceoffsWon: 0, faceoffsLost: 0,
+        saves: 0, faceoffsWon: 0, faceoffsLost: 0,
       };
     }
     const updated: StatLine = { ...line, [field]: (line[field] as number) + amount };
@@ -588,8 +582,8 @@ export default function StatTrackerPage() {
         lines: [{
           playerId: updated.playerId,
           goals: updated.goals, assists: updated.assists, shots: updated.shots,
-          hits: updated.hits, pim: updated.pim, plusMinus: updated.plusMinus,
-          saves: updated.saves, goalsAgainst: updated.goalsAgainst,
+          hits: updated.hits, pim: updated.pim,
+          saves: updated.saves,
           faceoffsWon: updated.faceoffsWon, faceoffsLost: updated.faceoffsLost,
         }],
         historyMeta: { period: currentPeriod, clockSecondsRemaining, gameSecondsElapsed },
@@ -849,7 +843,7 @@ export default function StatTrackerPage() {
         const line = linesByPlayerId[player._id] ?? {
           gameId, teamId, playerId: player._id,
           goals: 0, assists: 0, shots: 0, hits: 0, pim: 0,
-          plusMinus: 0, saves: 0, goalsAgainst: 0, faceoffsWon: 0, faceoffsLost: 0,
+          saves: 0, faceoffsWon: 0, faceoffsLost: 0,
         };
         const updated = { ...line, goals: line.goals + 1, shots: line.shots + 1 };
         setLinesByPlayerId((prev) => ({ ...prev, [player._id]: updated }));
@@ -862,7 +856,7 @@ export default function StatTrackerPage() {
             lines: [{
               playerId: updated.playerId, goals: updated.goals, assists: updated.assists,
               shots: updated.shots, hits: updated.hits, pim: updated.pim,
-              plusMinus: updated.plusMinus, saves: updated.saves, goalsAgainst: updated.goalsAgainst,
+              saves: updated.saves,
               faceoffsWon: updated.faceoffsWon, faceoffsLost: updated.faceoffsLost,
             }],
             historyMeta: { period: currentPeriod, clockSecondsRemaining, gameSecondsElapsed: elapsed },
@@ -1117,9 +1111,7 @@ export default function StatTrackerPage() {
         shots: 0,
         hits: 0,
         pim: 0,
-        plusMinus: 0,
         saves: 0,
-        goalsAgainst: 0,
         faceoffsWon: 0,
         faceoffsLost: 0,
       };
@@ -1145,10 +1137,7 @@ export default function StatTrackerPage() {
 
     const nextLine: StatLine = {
       ...playerLine,
-      [editingStatKey]:
-        editingStatKey === "plusMinus"
-          ? Number(editingValue) || 0
-          : intOrZero(editingValue),
+      [editingStatKey]: intOrZero(editingValue),
     };
 
     setLinesByPlayerId((prev) => ({ ...prev, [editingPlayerId]: nextLine }));
@@ -1163,9 +1152,7 @@ export default function StatTrackerPage() {
         shots: nextLine.shots,
         hits: nextLine.hits,
         pim: nextLine.pim,
-        plusMinus: nextLine.plusMinus,
         saves: nextLine.saves,
-        goalsAgainst: nextLine.goalsAgainst,
         faceoffsWon: nextLine.faceoffsWon,
         faceoffsLost: nextLine.faceoffsLost,
       };
@@ -2646,9 +2633,7 @@ export default function StatTrackerPage() {
                             <MenuItem value="shots">Shots</MenuItem>
                             <MenuItem value="hits">Hits</MenuItem>
                             <MenuItem value="pim">PIM</MenuItem>
-                            <MenuItem value="plusMinus">Plus/Minus</MenuItem>
                             <MenuItem value="saves">Saves</MenuItem>
-                            <MenuItem value="goalsAgainst">Goals Against</MenuItem>
                             <MenuItem value="faceoffsWon">Faceoffs Won</MenuItem>
                             <MenuItem value="faceoffsLost">Faceoffs Lost</MenuItem>
                           </Select>
@@ -2715,7 +2700,6 @@ function PlayerFifaCard({
   const sh = stat?.shots ?? 0;
   const h = stat?.hits ?? 0;
   const pim = stat?.pim ?? 0;
-  const pm = stat?.plusMinus ?? 0;
 
   const isLg = size === "lg";
   const pad = isLg ? 2.4 : 1.5;
@@ -2788,7 +2772,6 @@ function PlayerFifaCard({
           <Box>
             <Typography sx={{ fontSize: statSize, fontWeight: 1000 }}>H {h}</Typography>
             <Typography sx={{ fontSize: statSize, fontWeight: 1000 }}>PIM {pim}</Typography>
-            <Typography sx={{ fontSize: statSize, fontWeight: 1000 }}>+/- {pm}</Typography>
           </Box>
         </Stack>
       </Box>
