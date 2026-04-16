@@ -7,8 +7,6 @@ import {
   CircularProgress,
   Container,
   FormControl,
-  Grid,
-  IconButton,
   InputLabel,
   MenuItem,
   Paper,
@@ -16,7 +14,6 @@ import {
   SelectChangeEvent,
   Stack,
   Typography,
-  TextField,
   Divider,
   Button,
   Dialog,
@@ -31,9 +28,6 @@ import {
   TableCell,
   TableContainer,
 } from "@mui/material";
-import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
-import ChevronRightIcon from "@mui/icons-material/ChevronRight";
-import { motion, AnimatePresence } from "framer-motion";
 import Navbar from "../components/Navbar";
 
 type Team = { _id: string; name: string };
@@ -114,14 +108,6 @@ const API = {
 const PERIOD_LENGTH_SECONDS = 20 * 60;
 const CREAM = "#fff2d1";
 const GREEN = "#005F02";
-const PAGE_SIZE = 5;
-const SWIPE_THRESHOLD = 80;
-
-const intOrZero = (v: any) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.trunc(n) : 0;
-};
-
 const formatClock = (seconds: number) => {
   const safe = Math.max(0, seconds);
   const mins = Math.floor(safe / 60);
@@ -196,15 +182,8 @@ export default function StatTrackerPage() {
 
   const [loadingTeams, setLoadingTeams] = useState(false);
   const [loadingGameData, setLoadingGameData] = useState(false);
-  const [savingOne, setSavingOne] = useState(false);
-
-  const [pageIndex, setPageIndex] = useState(0);
 
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  const [editingPlayerId, setEditingPlayerId] = useState<string | null>(null);
-  const [editingStatKey, setEditingStatKey] = useState<keyof StatLine>("goals");
-  const [editingValue, setEditingValue] = useState<number>(0);
 
   const [currentPeriod, setCurrentPeriod] = useState<number>(1);
   const [clockSecondsRemaining, setClockSecondsRemaining] = useState<number>(PERIOD_LENGTH_SECONDS);
@@ -321,7 +300,6 @@ export default function StatTrackerPage() {
       setPlayers([]);
       setGameId("");
       setLinesByPlayerId({});
-      setPageIndex(0);
       return;
     }
 
@@ -341,7 +319,6 @@ export default function StatTrackerPage() {
         setPlayers(Array.isArray(pData) ? pData : []);
         setGameId("");
         setLinesByPlayerId({});
-        setPageIndex(0);
       } catch (e) {
         console.error(e);
         setMsg({ type: "error", text: "Failed to load games/players." });
@@ -354,7 +331,6 @@ export default function StatTrackerPage() {
   useEffect(() => {
     if (!teamId || !gameId) {
       setLinesByPlayerId({});
-      setPageIndex(0);
       return;
     }
 
@@ -413,7 +389,6 @@ export default function StatTrackerPage() {
         }
 
         setLinesByPlayerId(map);
-        setPageIndex(0);
       } catch (e) {
         console.error(e);
         setMsg({ type: "error", text: "Failed to load stats." });
@@ -446,25 +421,6 @@ export default function StatTrackerPage() {
   }, [selectedGame]);
 
   const sortedPlayers = useMemo(() => [...players].sort((a, b) => a.number - b.number), [players]);
-
-  const totalPages = useMemo(
-    () => Math.max(1, Math.ceil(sortedPlayers.length / PAGE_SIZE)),
-    [sortedPlayers.length]
-  );
-
-  const pagePlayers = useMemo(() => {
-    const start = pageIndex * PAGE_SIZE;
-    return sortedPlayers.slice(start, start + PAGE_SIZE).map((p) => ({
-      player: p,
-      stat: linesByPlayerId[p._id],
-    }));
-  }, [sortedPlayers, linesByPlayerId, pageIndex]);
-
-  const canPrev = pageIndex > 0;
-  const canNext = pageIndex < totalPages - 1;
-
-  const prevPage = () => setPageIndex((v) => Math.max(0, v - 1));
-  const nextPage = () => setPageIndex((v) => Math.min(totalPages - 1, v + 1));
 
   const toggleClock = async () => {
     if (!gameId) return;
@@ -1125,119 +1081,6 @@ export default function StatTrackerPage() {
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   };
 
-  const editingPlayer = useMemo(() => {
-    if (!editingPlayerId) return null;
-    return sortedPlayers.find((p) => p._id === editingPlayerId) || null;
-  }, [editingPlayerId, sortedPlayers]);
-
-  const openEdit = (playerId: string) => {
-    let line = linesByPlayerId[playerId];
-
-    if (!line) {
-      line = {
-        gameId,
-        teamId,
-        playerId,
-        goals: 0,
-        assists: 0,
-        shots: 0,
-        hits: 0,
-        pim: 0,
-        plusMinus: 0,
-        saves: 0,
-        goalsAgainst: 0,
-        faceoffsWon: 0,
-        faceoffsLost: 0,
-      };
-
-      setLinesByPlayerId((prev) => ({
-        ...prev,
-        [playerId]: line!,
-      }));
-    }
-
-    setEditingPlayerId(playerId);
-    setEditingStatKey("goals");
-    setEditingValue(line.goals ?? 0);
-  };
-
-  const closeEdit = () => setEditingPlayerId(null);
-
-  const saveOne = async () => {
-    if (!editingPlayerId || !teamId || !gameId) return;
-
-    const playerLine = linesByPlayerId[editingPlayerId];
-    if (!playerLine) return;
-
-    const nextLine: StatLine = {
-      ...playerLine,
-      [editingStatKey]:
-        editingStatKey === "plusMinus"
-          ? Number(editingValue) || 0
-          : intOrZero(editingValue),
-    };
-
-    setLinesByPlayerId((prev) => ({ ...prev, [editingPlayerId]: nextLine }));
-    setSavingOne(true);
-    setMsg(null);
-
-    try {
-      const payloadLine = {
-        playerId: nextLine.playerId,
-        goals: nextLine.goals,
-        assists: nextLine.assists,
-        shots: nextLine.shots,
-        hits: nextLine.hits,
-        pim: nextLine.pim,
-        plusMinus: nextLine.plusMinus,
-        saves: nextLine.saves,
-        goalsAgainst: nextLine.goalsAgainst,
-        faceoffsWon: nextLine.faceoffsWon,
-        faceoffsLost: nextLine.faceoffsLost,
-      };
-
-      const gameSecondsElapsed = getGameSecondsElapsed(currentPeriod, clockSecondsRemaining);
-
-      const res = await authFetch(`${API.stats}/bulk`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          teamId,
-          gameId,
-          lines: [payloadLine],
-          historyMeta: {
-            period: currentPeriod,
-            clockSecondsRemaining,
-            gameSecondsElapsed,
-          },
-        }),
-      });
-
-      const raw = await res.text();
-      let data: any = null;
-      if (raw) {
-        try {
-          data = JSON.parse(raw);
-        } catch {
-          // ignore non-json body
-        }
-      }
-
-      if (!res.ok) {
-        setMsg({ type: "error", text: data?.error || `Failed to save stat. (${res.status})` });
-        return;
-      }
-
-      setMsg({ type: "success", text: "Stat saved!" });
-      closeEdit();
-    } catch (e) {
-      console.error(e);
-      setMsg({ type: "error", text: "Failed to save stat." });
-    } finally {
-      setSavingOne(false);
-    }
-  };
-
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: CREAM, pt: 12, pb: 5 }}>
       <Navbar />
@@ -1447,70 +1290,6 @@ export default function StatTrackerPage() {
               </Stack>
             </Paper>
           )}
-
-          <Paper elevation={6} sx={{ borderRadius: 4, p: 2.5 }}>
-            {!teamId || !gameId ? (
-              <Box sx={{ p: 2 }}>
-                <Typography sx={{ color: GREEN, fontWeight: 700 }}>
-                  Select a team and game to begin.
-                </Typography>
-              </Box>
-            ) : (
-              <Stack spacing={2}>
-                <Stack direction="row" alignItems="center" spacing={1}>
-                  <IconButton onClick={prevPage} disabled={!canPrev}>
-                    <ChevronLeftIcon />
-                  </IconButton>
-
-                  <Typography sx={{ fontWeight: 1000, color: GREEN }}>
-                    Players {pageIndex * PAGE_SIZE + 1}–
-                    {Math.min(sortedPlayers.length, (pageIndex + 1) * PAGE_SIZE)} of{" "}
-                    {sortedPlayers.length}
-                  </Typography>
-
-                  <IconButton onClick={nextPage} disabled={!canNext}>
-                    <ChevronRightIcon />
-                  </IconButton>
-
-                  <Box sx={{ flex: 1 }} />
-
-                  <Typography sx={{ color: GREEN, fontWeight: 1000 }}>
-                    Page {pageIndex + 1}/{totalPages}
-                  </Typography>
-                </Stack>
-
-                <Box sx={{ overflow: "visible" }}>
-                  <Box
-                    component={motion.div}
-                    drag="x"
-                    dragConstraints={{ left: 0, right: 0 }}
-                    dragElastic={0.15}
-                    onDragEnd={(_, info) => {
-                      if (info.offset.x > SWIPE_THRESHOLD) prevPage();
-                      else if (info.offset.x < -SWIPE_THRESHOLD) nextPage();
-                    }}
-                    sx={{ pointerEvents: editingPlayerId ? "none" : "auto" }}
-                  >
-                    <Grid container spacing={2} sx={{ flexWrap: { xs: "wrap", md: "nowrap" } }}>
-                      {pagePlayers.map(({ player, stat }) => (
-                        <Grid item xs={12} sm={6} md={2.4 as any} key={player._id}>
-                          <PlayerFifaCard
-                            player={player}
-                            stat={stat}
-                            onClick={() => openEdit(player._id)}
-                          />
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </Box>
-                </Box>
-
-                <Typography sx={{ opacity: 0.6, fontSize: 12, color: GREEN }}>
-                  Tip: Swipe left/right (or use arrows) to move between groups of 5.
-                </Typography>
-              </Stack>
-            )}
-          </Paper>
 
           {/* ── Faceoff Tracker Section ── */}
           {selectedGame && opponentRoster.length > 0 && assignedTrackers.includes('faceoff_tracker') && (
@@ -2601,223 +2380,7 @@ export default function StatTrackerPage() {
           </DialogActions>
         </Dialog>
 
-        <AnimatePresence>
-          {editingPlayerId && editingPlayer && (
-            <Box
-              component={motion.div}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              sx={{
-                position: "fixed",
-                inset: 0,
-                zIndex: 2000,
-                bgcolor: "rgba(0,0,0,.55)",
-                display: "grid",
-                placeItems: "center",
-                p: 2,
-              }}
-              onClick={closeEdit}
-            >
-              <Box
-                onClick={(e) => e.stopPropagation()}
-                component={motion.div}
-                initial={{ opacity: 0, scale: 0.92, y: 14 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                transition={{ duration: 0.18 }}
-                sx={{
-                  width: "min(920px, 96vw)",
-                  borderRadius: 4,
-                  overflow: "hidden",
-                  boxShadow: "0 18px 70px rgba(0,0,0,.45)",
-                }}
-              >
-                <Paper sx={{ p: { xs: 2, md: 3 }, bgcolor: CREAM }}>
-                  <Stack direction={{ xs: "column", md: "row" }} spacing={2.5} alignItems="center">
-                    <Box sx={{ width: { xs: "100%", md: 360 } }}>
-                      <PlayerFifaCard
-                        player={editingPlayer}
-                        stat={linesByPlayerId[editingPlayerId]}
-                        onClick={() => {}}
-                        size="lg"
-                      />
-                    </Box>
-
-                    <Box sx={{ flex: 1, width: "100%" }}>
-                      <Typography sx={{ fontWeight: 1000, color: GREEN, mb: 1 }}>
-                        Edit Stats — #{editingPlayer.number} {editingPlayer.name}
-                      </Typography>
-
-                      <Stack spacing={2}>
-                        <FormControl fullWidth>
-                          <InputLabel sx={{ color: GREEN, fontWeight: 700 }}>Stat</InputLabel>
-                          <Select
-                            label="Stat"
-                            value={editingStatKey as string}
-                            onChange={(e) => {
-                              const k = e.target.value as keyof StatLine;
-                              setEditingStatKey(k);
-                              const line = linesByPlayerId[editingPlayerId];
-                              setEditingValue(Number((line as any)?.[k] ?? 0));
-                            }}
-                            sx={{
-                              ...greenFieldSx,
-                              "& .MuiSelect-select": { color: GREEN, fontWeight: 800 },
-                            }}
-                            MenuProps={greenMenuProps}
-                          >
-                            <MenuItem value="goals">Goals</MenuItem>
-                            <MenuItem value="assists">Assists</MenuItem>
-                            <MenuItem value="shots">Shots</MenuItem>
-                            <MenuItem value="hits">Hits</MenuItem>
-                            <MenuItem value="pim">PIM</MenuItem>
-                            <MenuItem value="plusMinus">Plus/Minus</MenuItem>
-                            <MenuItem value="saves">Saves</MenuItem>
-                            <MenuItem value="goalsAgainst">Goals Against</MenuItem>
-                            <MenuItem value="faceoffsWon">Faceoffs Won</MenuItem>
-                            <MenuItem value="faceoffsLost">Faceoffs Lost</MenuItem>
-                          </Select>
-                        </FormControl>
-
-                        <TextField
-                          type="number"
-                          label="Value"
-                          value={editingValue}
-                          onChange={(e) => setEditingValue(Number(e.target.value))}
-                          fullWidth
-                          sx={greenFieldSx}
-                        />
-
-                        <Stack direction="row" spacing={1.5} justifyContent="flex-end">
-                          <Button
-                            variant="outlined"
-                            onClick={closeEdit}
-                            sx={{ borderColor: GREEN, color: GREEN, fontWeight: 900 }}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            variant="contained"
-                            onClick={saveOne}
-                            sx={{ bgcolor: GREEN, fontWeight: 1000 }}
-                            disabled={savingOne}
-                          >
-                            {savingOne ? "Saving…" : "Save"}
-                          </Button>
-                        </Stack>
-
-                        {msg && (
-                          <Alert severity={msg.type} sx={{ mt: 1 }}>
-                            {msg.text}
-                          </Alert>
-                        )}
-                      </Stack>
-                    </Box>
-                  </Stack>
-                </Paper>
-              </Box>
-            </Box>
-          )}
-        </AnimatePresence>
       </Container>
     </Box>
-  );
-}
-
-function PlayerFifaCard({
-  player,
-  stat,
-  onClick,
-  size = "md",
-}: {
-  player: Player;
-  stat?: StatLine;
-  onClick: () => void;
-  size?: "md" | "lg";
-}) {
-  const g = stat?.goals ?? 0;
-  const a = stat?.assists ?? 0;
-  const sh = stat?.shots ?? 0;
-  const h = stat?.hits ?? 0;
-  const pim = stat?.pim ?? 0;
-  const pm = stat?.plusMinus ?? 0;
-
-  const isLg = size === "lg";
-  const pad = isLg ? 2.4 : 1.5;
-  const numSize = isLg ? 30 : 22;
-  const posSize = isLg ? 14 : 12;
-  const silhouetteH = isLg ? 150 : 92;
-  const nameSize = isLg ? 16 : 13;
-  const statSize = isLg ? 14 : 12;
-
-  return (
-    <Paper
-      onClick={onClick}
-      elevation={0}
-      sx={{
-        cursor: "pointer",
-        borderRadius: "18px",
-        overflow: "visible",
-        transition: "transform .15s ease",
-        "&:hover": { transform: isLg ? "none" : "translateY(-5px)" },
-        background: "linear-gradient(135deg, #0a3d0a, #1a5c1a)",
-        border: "1px solid rgba(255,255,255,.15)",
-        pointerEvents: isLg ? "none" : "auto",
-      }}
-    >
-      <Box sx={{ p: pad, color: "#fff", "& .MuiTypography-root": { color: "#fff" } }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-          <Box>
-            <Typography sx={{ fontWeight: 1000, fontSize: numSize, lineHeight: 1 }}>
-              {player.number}
-            </Typography>
-            <Typography sx={{ fontWeight: 900, fontSize: posSize, opacity: 0.85 }}>
-              {player.position || "—"}
-            </Typography>
-          </Box>
-
-          <Typography sx={{ fontWeight: 1000, fontSize: posSize, opacity: 0.85 }}>
-            SAUCE
-          </Typography>
-        </Stack>
-
-        <Box
-          sx={{
-            mt: 1,
-            height: silhouetteH,
-            borderRadius: 2,
-            bgcolor: "rgba(255,255,255,.10)",
-          }}
-        />
-
-        <Typography
-          sx={{
-            mt: 1.2,
-            textAlign: "center",
-            fontWeight: 1000,
-            letterSpacing: ".02em",
-            fontSize: nameSize,
-          }}
-        >
-          {player.name.toUpperCase()}
-        </Typography>
-
-        <Divider sx={{ my: 1, opacity: 0.4, borderColor: "rgba(255,255,255,.3)" }} />
-
-        <Stack direction="row" justifyContent="space-between">
-          <Box>
-            <Typography sx={{ fontSize: statSize, fontWeight: 1000 }}>G {g}</Typography>
-            <Typography sx={{ fontSize: statSize, fontWeight: 1000 }}>A {a}</Typography>
-            <Typography sx={{ fontSize: statSize, fontWeight: 1000 }}>S {sh}</Typography>
-          </Box>
-          <Box>
-            <Typography sx={{ fontSize: statSize, fontWeight: 1000 }}>H {h}</Typography>
-            <Typography sx={{ fontSize: statSize, fontWeight: 1000 }}>PIM {pim}</Typography>
-            <Typography sx={{ fontSize: statSize, fontWeight: 1000 }}>+/- {pm}</Typography>
-          </Box>
-        </Stack>
-      </Box>
-    </Paper>
   );
 }
