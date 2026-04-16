@@ -36,14 +36,6 @@ type TeamMember = {
 type RoleRow = { teamId: string; assigneeUserId: string; statKey: StatKey };
 
 type StatKey =
-  | "goals"
-  | "assists"
-  | "shots"
-  | "hits"
-  | "pim"
-  | "plusMinus"
-  | "saves"
-  | "goalsAgainst"
   | "faceoff_tracker"
   | "hit_penalty_tracker"
   | "shots_goals_tracker"
