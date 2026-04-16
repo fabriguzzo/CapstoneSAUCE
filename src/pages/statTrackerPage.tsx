@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuthFetch } from "../hooks/useAuthFetch";
+import { useAuth } from "../context/AuthContext";
 import {
   Alert,
   Box,
@@ -18,6 +19,11 @@ import {
   TextField,
   Divider,
   Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
   Table,
   TableHead,
   TableBody,
@@ -37,7 +43,7 @@ type Game = {
   teamId: string;
   gameDate: string;
   gameType: string;
-  opponent?: { teamName?: string };
+  opponent?: { teamName?: string; roster?: { number: number; name: string }[] };
   status?: "scheduled" | "live" | "intermission" | "final";
   currentPeriod?: number;
   clockSecondsRemaining?: number;
@@ -81,7 +87,7 @@ type GameEventRecord = {
   _id: string;
   gameId: string;
   teamId: string;
-  eventType: "faceoff" | "hit" | "penalty" | "pass_success" | "pass_fail";
+  eventType: "faceoff" | "hit" | "penalty" | "shot" | "goal" | "pass_success" | "pass_fail";
   team: "home" | "away";
   homePlayerId: string | null;
   homePlayerName: string;
@@ -123,11 +129,6 @@ const formatClock = (seconds: number) => {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 };
 
-const parseClockToSeconds = (value: string) => {
-  const [m, s] = value.split(":").map(Number);
-  if (!Number.isFinite(m) || !Number.isFinite(s)) return PERIOD_LENGTH_SECONDS;
-  return Math.max(0, Math.min(PERIOD_LENGTH_SECONDS, m * 60 + s));
-};
 
 const getGameSecondsElapsed = (period: number, secondsRemaining: number) => {
   const elapsedBeforePeriod = (Math.max(1, period) - 1) * PERIOD_LENGTH_SECONDS;
@@ -182,6 +183,7 @@ const greenMenuProps = {
 
 export default function StatTrackerPage() {
   const authFetch = useAuthFetch();
+  const { user } = useAuth();
 
   const [teams, setTeams] = useState<Team[]>([]);
   const [games, setGames] = useState<Game[]>([]);
@@ -208,6 +210,7 @@ export default function StatTrackerPage() {
   const [clockSecondsRemaining, setClockSecondsRemaining] = useState<number>(PERIOD_LENGTH_SECONDS);
   const [isClockRunning, setIsClockRunning] = useState(false);
   const [endingGame, setEndingGame] = useState(false);
+  const [confirmEndOpen, setConfirmEndOpen] = useState(false);
 
   // Faceoff state
   const [faceoffHomePlayer, setFaceoffHomePlayer] = useState<Player | null>(null);
@@ -220,6 +223,10 @@ export default function StatTrackerPage() {
   const [hpSaving, setHpSaving] = useState(false);
   const [hpPenaltyPlayer, setHpPenaltyPlayer] = useState<Player | null>(null);
   const [hpPenaltyMinutes, setHpPenaltyMinutes] = useState<number>(2);
+
+  // Shots/Goals state
+  const [shotGoals, setShotGoals] = useState<GameEventRecord[]>([]);
+  const [sgSaving, setSgSaving] = useState(false);
 
   // Possession tracker state
   const [possessionOwner, setPossessionOwner] = useState<"home" | "away" | "none">("none");
@@ -265,7 +272,14 @@ export default function StatTrackerPage() {
       try {
         const res = await authFetch(API.teams);
         const data = await res.json();
-        setTeams(Array.isArray(data) ? data : []);
+        const all: Team[] = Array.isArray(data) ? data : [];
+        // Only show the team this user belongs to
+        const filtered = user?.teamId ? all.filter((t) => t._id === user.teamId) : all;
+        setTeams(filtered);
+        // Auto-select if there's only one option
+        if (filtered.length === 1) {
+          setTeamId(filtered[0]._id);
+        }
       } catch (e) {
         console.error(e);
         setMsg({ type: "error", text: "Failed to load teams." });
@@ -273,7 +287,7 @@ export default function StatTrackerPage() {
         setLoadingTeams(false);
       }
     })();
-  }, [authFetch]);
+  }, [authFetch, user?.teamId]);
 
   useEffect(() => {
     if (!teamId) {
@@ -510,6 +524,7 @@ export default function StatTrackerPage() {
       setFaceoffAwayPlayer(null);
       setHitPenalties([]);
       setHpPenaltyPlayer(null);
+      setShotGoals([]);
       setPossessionOwner("none");
       setHomeSeconds(0);
       setAwaySeconds(0);
@@ -524,6 +539,7 @@ export default function StatTrackerPage() {
           setFaceoffs(allEvents.filter((e) => e.eventType === "faceoff"));
           setHitPenalties(allEvents.filter((e) => e.eventType === "hit" || e.eventType === "penalty"));
           setPassEvents(allEvents.filter((e) => e.eventType === "pass_success" || e.eventType === "pass_fail"));
+          setShotGoals(allEvents.filter((e) => e.eventType === "shot" || e.eventType === "goal"));
         }
       } catch (e) {
         console.error("Failed to load game events", e);
@@ -779,6 +795,125 @@ export default function StatTrackerPage() {
     }
     return { totalHits, totalPenalties, totalPIM, total: hitPenalties.length };
   }, [hitPenalties]);
+
+  // ── Shots/Goals helpers ──
+  const recordShot = async (player: Player) => {
+    if (!gameId || !teamId) return;
+    setSgSaving(true);
+    try {
+      const gameSecondsElapsed = getGameSecondsElapsed(currentPeriod, clockSecondsRemaining);
+      const res = await authFetch(API.events, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gameId, teamId, eventType: "shot", team: "home",
+          homePlayerId: player._id, homePlayerName: player.name, homePlayerNumber: player.number,
+          period: currentPeriod, clockSecondsRemaining, gameSecondsElapsed,
+        }),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        setShotGoals((prev) => [created, ...prev]);
+        await incrementStatAndSave(player._id, "shots", 1);
+        setMsg({ type: "success", text: `Shot recorded for #${player.number} ${player.name}` });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setMsg({ type: "error", text: data?.error || "Failed to save shot." });
+      }
+    } catch (e) {
+      console.error(e);
+      setMsg({ type: "error", text: "Failed to save shot." });
+    } finally {
+      setSgSaving(false);
+    }
+  };
+
+  const recordGoal = async (player: Player) => {
+    if (!gameId || !teamId) return;
+    setSgSaving(true);
+    try {
+      const gameSecondsElapsed = getGameSecondsElapsed(currentPeriod, clockSecondsRemaining);
+      const res = await authFetch(API.events, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gameId, teamId, eventType: "goal", team: "home",
+          homePlayerId: player._id, homePlayerName: player.name, homePlayerNumber: player.number,
+          period: currentPeriod, clockSecondsRemaining, gameSecondsElapsed,
+        }),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        setShotGoals((prev) => [created, ...prev]);
+        // Goal counts as a goal + a shot
+        const line = linesByPlayerId[player._id] ?? {
+          gameId, teamId, playerId: player._id,
+          goals: 0, assists: 0, shots: 0, hits: 0, pim: 0,
+          plusMinus: 0, saves: 0, goalsAgainst: 0, faceoffsWon: 0, faceoffsLost: 0,
+        };
+        const updated = { ...line, goals: line.goals + 1, shots: line.shots + 1 };
+        setLinesByPlayerId((prev) => ({ ...prev, [player._id]: updated }));
+        const elapsed = getGameSecondsElapsed(currentPeriod, clockSecondsRemaining);
+        await authFetch(`${API.stats}/bulk`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            teamId, gameId,
+            lines: [{
+              playerId: updated.playerId, goals: updated.goals, assists: updated.assists,
+              shots: updated.shots, hits: updated.hits, pim: updated.pim,
+              plusMinus: updated.plusMinus, saves: updated.saves, goalsAgainst: updated.goalsAgainst,
+              faceoffsWon: updated.faceoffsWon, faceoffsLost: updated.faceoffsLost,
+            }],
+            historyMeta: { period: currentPeriod, clockSecondsRemaining, gameSecondsElapsed: elapsed },
+          }),
+        });
+        setMsg({ type: "success", text: `Goal + shot recorded for #${player.number} ${player.name}` });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setMsg({ type: "error", text: data?.error || "Failed to save goal." });
+      }
+    } catch (e) {
+      console.error(e);
+      setMsg({ type: "error", text: "Failed to save goal." });
+    } finally {
+      setSgSaving(false);
+    }
+  };
+
+  const undoShotGoal = async () => {
+    if (!gameId) return;
+    setSgSaving(true);
+    try {
+      const res = await authFetch(`${API.events}/undo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gameId }),
+      });
+      if (res.ok) {
+        setShotGoals((prev) => prev.slice(1));
+        setMsg({ type: "success", text: "Last shot/goal undone." });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setMsg({ type: "error", text: data?.error || "Failed to undo shot/goal." });
+      }
+    } catch (e) {
+      console.error(e);
+      setMsg({ type: "error", text: "Failed to undo shot/goal." });
+    } finally {
+      setSgSaving(false);
+    }
+  };
+
+  const sgStats = useMemo(() => {
+    let totalShots = 0;
+    let totalGoals = 0;
+    for (const r of shotGoals) {
+      if (r.eventType === "shot") totalShots++;
+      else if (r.eventType === "goal") { totalGoals++; totalShots++; }
+    }
+    return { totalShots, totalGoals };
+  }, [shotGoals]);
 
   const changePossession = async (newOwner: "home" | "away" | "none") => {
     // Save snapshot when possession changes from a team
@@ -1212,12 +1347,24 @@ export default function StatTrackerPage() {
                     </Select>
                   </FormControl>
 
-                  <TextField
-                    label="Clock Remaining"
-                    value={formatClock(clockSecondsRemaining)}
-                    onChange={(e) => setClockSecondsRemaining(parseClockToSeconds(e.target.value))}
-                    sx={greenFieldSx}
-                  />
+                  <Stack direction="row" spacing={0.5}>
+                    <Button
+                      variant="outlined"
+                      onClick={() => setClockSecondsRemaining((prev) => Math.min(PERIOD_LENGTH_SECONDS, prev + 1))}
+                      disabled={selectedGame?.status === 'final'}
+                      sx={{ borderColor: GREEN, color: GREEN, fontWeight: 900, minWidth: 70 }}
+                    >
+                      +1 Sec
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      onClick={() => setClockSecondsRemaining((prev) => Math.max(0, prev - 1))}
+                      disabled={selectedGame?.status === 'final'}
+                      sx={{ borderColor: GREEN, color: GREEN, fontWeight: 900, minWidth: 70 }}
+                    >
+                      -1 Sec
+                    </Button>
+                  </Stack>
 
                   <Paper
                     elevation={0}
@@ -1256,7 +1403,7 @@ export default function StatTrackerPage() {
 
                   <Button
                     variant="contained"
-                    onClick={endGame}
+                    onClick={() => setConfirmEndOpen(true)}
                     disabled={endingGame || selectedGame?.status === 'final'}
                     sx={{
                       bgcolor: "#b71c1c",
@@ -1869,6 +2016,192 @@ export default function StatTrackerPage() {
             </Paper>
           )}
 
+          {/* ── Shots & Goals Tracker Section ── */}
+          {selectedGame && (
+            <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
+              <Typography sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}>
+                Shots & Goals Tracker
+              </Typography>
+
+              {/* Summary */}
+              <Stack direction="row" justifyContent="center" spacing={3} sx={{ mb: 2 }}>
+                <Typography sx={{ color: GREEN, fontWeight: 900 }}>Shots: {sgStats.totalShots}</Typography>
+                <Typography sx={{ color: GREEN, fontWeight: 900 }}>Goals: {sgStats.totalGoals}</Typography>
+              </Stack>
+
+              <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
+                {/* Home Team Table */}
+                <Box sx={{ flex: 1, width: "100%" }}>
+                  <Typography sx={{ color: GREEN, fontWeight: 900, mb: 1, textAlign: "center" }}>Home Team</Typography>
+                  <TableContainer component={Paper} elevation={2} sx={{ maxHeight: 350, overflow: "auto" }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>#</TableCell>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>Name</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Shot</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Goal</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {sortedPlayers.map((p) => (
+                          <TableRow key={`sg-home-${p._id}`} sx={{ "&:hover": { bgcolor: "rgba(0,95,2,0.06)" } }}>
+                            <TableCell sx={{ fontWeight: 800 }}>{p.number}</TableCell>
+                            <TableCell>{p.name}</TableCell>
+                            <TableCell align="center">
+                              <Button
+                                size="small"
+                                variant="contained"
+                                disabled={sgSaving}
+                                onClick={() => recordShot(p)}
+                                sx={{ minWidth: 55, bgcolor: GREEN, color: CREAM, fontWeight: 900, "&:hover": { bgcolor: "#004a01" } }}
+                              >
+                                Shot
+                              </Button>
+                            </TableCell>
+                            <TableCell align="center">
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                disabled={sgSaving}
+                                onClick={() => recordGoal(p)}
+                                sx={{ minWidth: 55, borderColor: "#e65100", color: "#e65100", fontWeight: 900, "&:hover": { bgcolor: "rgba(230,81,0,0.08)", borderColor: "#bf360c" } }}
+                              >
+                                Goal
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+
+                {/* Center Panel */}
+                <Box sx={{ flex: 1, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 300 }}>
+                  <Paper elevation={4} sx={{ p: 3, borderRadius: 4, bgcolor: GREEN, color: CREAM, width: "100%", maxWidth: 320, textAlign: "center" }}>
+                    <Typography sx={{ fontWeight: 1000, fontSize: 18, mb: 2, color: CREAM }}>
+                      Shot & Goal Actions
+                    </Typography>
+                    <Typography sx={{ fontWeight: 700, fontSize: 14, opacity: 0.7, mb: 3, color: CREAM }}>
+                      Press "Shot" to record a shot. Press "Goal" to record a goal — a shot is automatically added too.
+                    </Typography>
+                    <Divider sx={{ borderColor: "rgba(255,255,255,0.3)", my: 2 }} />
+                    <Button
+                      variant="outlined"
+                      disabled={shotGoals.length === 0 || sgSaving}
+                      onClick={undoShotGoal}
+                      sx={{
+                        borderColor: CREAM, color: CREAM, fontWeight: 900,
+                        "&:hover": { borderColor: "#e6d9b8", bgcolor: "rgba(255,255,255,0.1)" },
+                        "&:disabled": { borderColor: "rgba(255,255,255,0.3)", color: "rgba(255,255,255,0.5)" },
+                      }}
+                    >
+                      Undo Last
+                    </Button>
+                  </Paper>
+                </Box>
+
+                {/* Away Team Table */}
+                <Box sx={{ flex: 1, width: "100%" }}>
+                  <Typography sx={{ color: GREEN, fontWeight: 900, mb: 1, textAlign: "center" }}>
+                    {selectedGame.opponent?.teamName || "Opponent"}
+                  </Typography>
+                  <TableContainer component={Paper} elevation={2} sx={{ maxHeight: 350, overflow: "auto" }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>#</TableCell>
+                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>Name</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Shot</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Goal</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {opponentRoster.map((p, idx) => (
+                          <TableRow key={`sg-opp-${idx}`} sx={{ "&:hover": { bgcolor: "rgba(0,95,2,0.06)" } }}>
+                            <TableCell sx={{ fontWeight: 800 }}>{p.number}</TableCell>
+                            <TableCell>{p.name}</TableCell>
+                            <TableCell align="center">
+                              <Button
+                                size="small"
+                                variant="contained"
+                                disabled={sgSaving}
+                                onClick={async () => {
+                                  if (!gameId || !teamId) return;
+                                  setSgSaving(true);
+                                  try {
+                                    const gameSecondsElapsed = getGameSecondsElapsed(currentPeriod, clockSecondsRemaining);
+                                    const res = await authFetch(API.events, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({
+                                        gameId, teamId, eventType: "shot", team: "away",
+                                        homePlayerId: null, homePlayerName: p.name, homePlayerNumber: p.number,
+                                        period: currentPeriod, clockSecondsRemaining, gameSecondsElapsed,
+                                      }),
+                                    });
+                                    if (res.ok) {
+                                      const created = await res.json();
+                                      setShotGoals((prev) => [created, ...prev]);
+                                      setMsg({ type: "success", text: `Shot recorded for #${p.number} ${p.name}` });
+                                    } else {
+                                      const data = await res.json().catch(() => ({}));
+                                      setMsg({ type: "error", text: data?.error || "Failed to save shot." });
+                                    }
+                                  } catch (e) { console.error(e); setMsg({ type: "error", text: "Failed to save shot." }); }
+                                  finally { setSgSaving(false); }
+                                }}
+                                sx={{ minWidth: 55, bgcolor: GREEN, color: CREAM, fontWeight: 900, "&:hover": { bgcolor: "#004a01" } }}
+                              >
+                                Shot
+                              </Button>
+                            </TableCell>
+                            <TableCell align="center">
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                disabled={sgSaving}
+                                onClick={async () => {
+                                  if (!gameId || !teamId) return;
+                                  setSgSaving(true);
+                                  try {
+                                    const gameSecondsElapsed = getGameSecondsElapsed(currentPeriod, clockSecondsRemaining);
+                                    const res = await authFetch(API.events, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({
+                                        gameId, teamId, eventType: "goal", team: "away",
+                                        homePlayerId: null, homePlayerName: p.name, homePlayerNumber: p.number,
+                                        period: currentPeriod, clockSecondsRemaining, gameSecondsElapsed,
+                                      }),
+                                    });
+                                    if (res.ok) {
+                                      const created = await res.json();
+                                      setShotGoals((prev) => [created, ...prev]);
+                                      setMsg({ type: "success", text: `Goal + shot recorded for #${p.number} ${p.name}` });
+                                    } else {
+                                      const data = await res.json().catch(() => ({}));
+                                      setMsg({ type: "error", text: data?.error || "Failed to save goal." });
+                                    }
+                                  } catch (e) { console.error(e); setMsg({ type: "error", text: "Failed to save goal." }); }
+                                  finally { setSgSaving(false); }
+                                }}
+                                sx={{ minWidth: 55, borderColor: "#e65100", color: "#e65100", fontWeight: 900, "&:hover": { bgcolor: "rgba(230,81,0,0.08)", borderColor: "#bf360c" } }}
+                              >
+                                Goal
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              </Stack>
+            </Paper>
+          )}
+
           {/* ── Time of Possession Tracker ── */}
           {selectedGame && (
             <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
@@ -1978,241 +2311,31 @@ export default function StatTrackerPage() {
 
             </Paper>
           )}
-
-          {/* ── Pass Tracker Section ── */}
-          {selectedGame && (
-            <Paper elevation={6} sx={{ p: 2.5, borderRadius: 4 }}>
-              <Typography
-                sx={{ color: GREEN, fontWeight: 1000, fontSize: 24, mb: 2, textAlign: "center" }}
-              >
-                Pass Tracker
-              </Typography>
-
-              {/* Summary */}
-              <Stack direction="row" justifyContent="center" spacing={3} sx={{ mb: 2 }}>
-                <Typography sx={{ color: GREEN, fontWeight: 900 }}>
-                  Successful: {passStats.successfulPasses}
-                </Typography>
-                <Typography sx={{ color: GREEN, fontWeight: 900 }}>
-                  Failed: {passStats.failedPasses}
-                </Typography>
-                <Typography sx={{ color: GREEN, fontWeight: 900 }}>
-                  Assists: {passStats.assists}
-                </Typography>
-              </Stack>
-
-              <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
-                {/* Home Team Table */}
-                <Box sx={{ flex: 1, width: "100%" }}>
-                  <Typography sx={{ color: GREEN, fontWeight: 900, mb: 1, textAlign: "center" }}>
-                    Home Team
-                  </Typography>
-                  <TableContainer component={Paper} elevation={2} sx={{ maxHeight: 350, overflow: "auto" }}>
-                    <Table size="small" stickyHeader>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>#</TableCell>
-                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>Name</TableCell>
-                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Pass</TableCell>
-                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Fail</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {sortedPlayers.map((p) => (
-                          <TableRow key={`pass-home-${p._id}`} sx={{ "&:hover": { bgcolor: "rgba(0,95,2,0.06)" } }}>
-                            <TableCell sx={{ fontWeight: 800 }}>{p.number}</TableCell>
-                            <TableCell>{p.name}</TableCell>
-                            <TableCell align="center">
-                              <Button
-                                size="small"
-                                variant="contained"
-                                disabled={passSaving}
-                                onClick={() => recordPass(p, true)}
-                                sx={{
-                                  minWidth: 50,
-                                  bgcolor: GREEN,
-                                  color: CREAM,
-                                  fontWeight: 900,
-                                  "&:hover": { bgcolor: "#004a01" },
-                                }}
-                              >
-                                Pass
-                              </Button>
-                            </TableCell>
-                            <TableCell align="center">
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                disabled={passSaving}
-                                onClick={() => recordPass(p, false)}
-                                sx={{
-                                  minWidth: 50,
-                                  borderColor: "#b71c1c",
-                                  color: "#b71c1c",
-                                  fontWeight: 900,
-                                  "&:hover": { bgcolor: "rgba(183,28,28,0.08)", borderColor: "#8b0000" },
-                                }}
-                              >
-                                Fail
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                </Box>
-
-                {/* Center Panel */}
-                <Box sx={{ flex: 1, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 300 }}>
-                  <Paper
-                    elevation={4}
-                    sx={{
-                      p: 3,
-                      borderRadius: 4,
-                      bgcolor: GREEN,
-                      color: CREAM,
-                      width: "100%",
-                      maxWidth: 320,
-                      textAlign: "center",
-                    }}
-                  >
-                    {lastSuccessfulPass ? (
-                      <>
-                        <Typography sx={{ fontWeight: 1000, fontSize: 18, mb: 2, color: CREAM }}>
-                          Last Successful Pass
-                        </Typography>
-                        <Typography sx={{ fontWeight: 1000, fontSize: 28, color: CREAM }}>
-                          #{lastSuccessfulPass.team === "home" ? lastSuccessfulPass.homePlayerNumber : lastSuccessfulPass.awayPlayerNumber}
-                        </Typography>
-                        <Typography sx={{ fontWeight: 800, fontSize: 14, mb: 2, color: CREAM }}>
-                          {lastSuccessfulPass.team === "home" ? lastSuccessfulPass.homePlayerName : lastSuccessfulPass.awayPlayerName}
-                        </Typography>
-
-                        <Stack direction="row" spacing={1} justifyContent="center">
-                          <Button
-                            variant="contained"
-                            disabled={passSaving}
-                            onClick={markAssist}
-                            sx={{
-                              bgcolor: CREAM,
-                              color: GREEN,
-                              fontWeight: 1000,
-                              "&:hover": { bgcolor: "#e6d9b8" },
-                              "&:disabled": { bgcolor: "rgba(255,255,255,0.3)", color: "rgba(255,255,255,0.5)" },
-                            }}
-                          >
-                            {passSaving ? "Saving…" : "Resulted in Goal"}
-                          </Button>
-                          <Button
-                            variant="outlined"
-                            disabled={passSaving}
-                            onClick={() => {
-                              const ids = new Set(dismissedPassIds);
-                              passEvents.forEach((e) => { if (e.eventType === "pass_success" && !e.isAssist) ids.add(e._id); });
-                              setDismissedPassIds(ids);
-                            }}
-                            sx={{
-                              borderColor: CREAM,
-                              color: CREAM,
-                              fontWeight: 900,
-                              "&:hover": { borderColor: "#e6d9b8", bgcolor: "rgba(255,255,255,0.1)" },
-                              "&:disabled": { borderColor: "rgba(255,255,255,0.3)", color: "rgba(255,255,255,0.5)" },
-                            }}
-                          >
-                            Did Not Result in Goal
-                          </Button>
-                        </Stack>
-                      </>
-                    ) : (
-                      <Typography sx={{ fontWeight: 700, fontSize: 14, opacity: 0.7, mb: 2, color: CREAM }}>
-                        Press "Pass" to record a successful pass, or "Fail" for a failed pass.
-                      </Typography>
-                    )}
-
-                    <Divider sx={{ borderColor: "rgba(255,255,255,0.3)", my: 2 }} />
-
-                    <Button
-                      variant="outlined"
-                      disabled={passEvents.length === 0 || passSaving}
-                      onClick={undoPass}
-                      sx={{
-                        borderColor: CREAM,
-                        color: CREAM,
-                        fontWeight: 900,
-                        "&:hover": { borderColor: "#e6d9b8", bgcolor: "rgba(255,255,255,0.1)" },
-                        "&:disabled": { borderColor: "rgba(255,255,255,0.3)", color: "rgba(255,255,255,0.5)" },
-                      }}
-                    >
-                      Undo Last
-                    </Button>
-                  </Paper>
-                </Box>
-
-                {/* Away Team Table */}
-                <Box sx={{ flex: 1, width: "100%" }}>
-                  <Typography sx={{ color: GREEN, fontWeight: 900, mb: 1, textAlign: "center" }}>
-                    {selectedGame.opponent?.teamName || "Opponent"}
-                  </Typography>
-                  <TableContainer component={Paper} elevation={2} sx={{ maxHeight: 350, overflow: "auto" }}>
-                    <Table size="small" stickyHeader>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>#</TableCell>
-                          <TableCell sx={{ fontWeight: 900, color: GREEN }}>Name</TableCell>
-                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Pass</TableCell>
-                          <TableCell align="center" sx={{ fontWeight: 900, color: GREEN }}>Fail</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {opponentRoster.map((p, idx) => (
-                          <TableRow key={`pass-opp-${idx}`} sx={{ "&:hover": { bgcolor: "rgba(0,95,2,0.06)" } }}>
-                            <TableCell sx={{ fontWeight: 800 }}>{p.number}</TableCell>
-                            <TableCell>{p.name}</TableCell>
-                            <TableCell align="center">
-                              <Button
-                                size="small"
-                                variant="contained"
-                                disabled={passSaving}
-                                onClick={() => recordAwayPass(p, true)}
-                                sx={{
-                                  minWidth: 50,
-                                  bgcolor: GREEN,
-                                  color: CREAM,
-                                  fontWeight: 900,
-                                  "&:hover": { bgcolor: "#004a01" },
-                                }}
-                              >
-                                Pass
-                              </Button>
-                            </TableCell>
-                            <TableCell align="center">
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                disabled={passSaving}
-                                onClick={() => recordAwayPass(p, false)}
-                                sx={{
-                                  minWidth: 50,
-                                  borderColor: "#b71c1c",
-                                  color: "#b71c1c",
-                                  fontWeight: 900,
-                                  "&:hover": { bgcolor: "rgba(183,28,28,0.08)", borderColor: "#8b0000" },
-                                }}
-                              >
-                                Fail
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                </Box>
-              </Stack>
-            </Paper>
-          )}
         </Stack>
+
+        <Dialog open={confirmEndOpen} onClose={() => setConfirmEndOpen(false)}>
+          <DialogTitle sx={{ fontWeight: 900, color: "#b71c1c" }}>End Game?</DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              Are you sure you want to end the game? This action cannot be undone.
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={() => setConfirmEndOpen(false)}
+              sx={{ color: GREEN, fontWeight: 900 }}
+            >
+              No
+            </Button>
+            <Button
+              onClick={() => { setConfirmEndOpen(false); endGame(); }}
+              variant="contained"
+              sx={{ bgcolor: "#b71c1c", fontWeight: 900, "&:hover": { bgcolor: "#8b0000" } }}
+            >
+              Yes, End Game
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         <AnimatePresence>
           {editingPlayerId && editingPlayer && (
